@@ -20,6 +20,14 @@ if System.get_env("PHX_SERVER") do
   config :governance_core, GovernanceCoreWeb.Endpoint, server: true
 end
 
+# Supabase Config
+if supabase_url = System.get_env("SUPABASE_URL") do
+  config :governance_core, :supabase,
+    url: supabase_url,
+    key: System.get_env("SUPABASE_KEY"),
+    jwt_secret: System.get_env("SUPABASE_JWT_SECRET")
+end
+
 config :governance_core, GovernanceCoreWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 

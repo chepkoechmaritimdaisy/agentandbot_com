@@ -15,6 +15,12 @@ services:
           property: connectionString
       - key: POOL_SIZE
         value: "10"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
 
 databases:
   - name: governance-core-db
