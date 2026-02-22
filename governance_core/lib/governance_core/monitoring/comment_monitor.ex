@@ -28,8 +28,8 @@ defmodule GovernanceCore.Monitoring.CommentMonitor do
   # Callbacks
 
   def handle_cast({:broadcast, comment}, state) do
-    # Keep last 20 comments
-    new_state = [comment | state] |> Enum.take(20)
+    # Keep last 50 comments (increased buffer)
+    new_state = [comment | state] |> Enum.take(50)
     Phoenix.PubSub.broadcast(GovernanceCore.PubSub, @topic, {:new_comment, comment})
     {:noreply, new_state}
   end
