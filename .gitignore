@@ -35,3 +35,7 @@ governance_core-*.tar
 npm-debug.log
 /assets/node_modules/
 
+# Environment variables — never commit these!
+.env
+*.env
+.env.local
