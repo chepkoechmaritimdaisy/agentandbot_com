@@ -12,10 +12,16 @@ defmodule GovernanceCore.Application do
       GovernanceCore.Repo,
       {DNSCluster, query: Application.get_env(:governance_core, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: GovernanceCore.PubSub},
+      # Start the Finch HTTP client for sending emails
+      {Finch, name: GovernanceCore.Finch},
       # Start a worker by calling: GovernanceCore.Worker.start_link(arg)
       # {GovernanceCore.Worker, arg},
       # Start to serve requests, typically the last entry
-      GovernanceCoreWeb.Endpoint
+      GovernanceCoreWeb.Endpoint,
+      # Start the Continuous AX Audit process
+      GovernanceCore.AXAudit,
+      # Start the Security Limiter
+      GovernanceCore.Limiter
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
