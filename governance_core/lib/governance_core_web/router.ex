@@ -20,6 +20,9 @@ defmodule GovernanceCoreWeb.Router do
     get("/", PageController, :home)
 
     live("/marketplace", MarketplaceLive)
+    live("/agents/new", AgentCreateLive)
+    live("/agents/:id", AgentDetailLive)
+    live("/dashboard", DashboardLive)
     live("/agent/connect", AgentConnectLive)
   end
 
@@ -30,18 +33,23 @@ defmodule GovernanceCoreWeb.Router do
   end
 
   scope "/api", GovernanceCoreWeb do
-    pipe_through :api
+    pipe_through(:api)
 
-    post "/comments", CommentController, :create
+    # Agent CRUD
+    get("/agents", Api.AgentController, :index)
+    get("/agents/:id", Api.AgentController, :show)
+    post("/agents", Api.AgentController, :create)
+
+    # Tasks
+    post("/tasks", Api.TaskController, :create)
+    get("/tasks/:id", Api.TaskController, :show)
+
+    # Comments (from remote — Jules/Comment Monitor)
+    post("/comments", CommentController, :create)
   end
 
   # Enable LiveDashboard in development
   if Application.compile_env(:governance_core, :dev_routes) do
-    # If you want to use the LiveDashboard in production, you should put
-    # it behind authentication and allow only admins to access it.
-    # If your application does not have an admins-only section yet,
-    # you can use Plug.BasicAuth to set up some basic authentication
-    # as long as you are also using SSL (which you should anyway).
     import Phoenix.LiveDashboard.Router
 
     scope "/dev" do

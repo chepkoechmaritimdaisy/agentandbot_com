@@ -2,6 +2,9 @@ defmodule GovernanceCoreWeb.PageController do
   use GovernanceCoreWeb, :controller
 
   def home(conn, _params) do
-    render(conn, :home)
+    conn
+    |> put_layout(html: {GovernanceCoreWeb.Layouts, :app})
+    |> assign(:current_path, "/")
+    |> render(:home)
   end
 end

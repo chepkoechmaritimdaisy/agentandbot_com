@@ -5,25 +5,40 @@ defmodule GovernanceCoreWeb.AgentDiscoveryController do
     discovery_data = %{
       schema_version: "1.0",
       name: "agentandbot.com",
-      description: "Governance Core for agentandbot.com AI ecosystem.",
+      description: "Enterprise Agent OS — deploy AI agents that work like digital employees.",
       contact: "admin@agentandbot.com",
-      protocols: %{
-        clawspeak: %{
-          version: "0.1-alpha",
-          description: "High-density semantic layer for agent intent negotiation.",
-          repository: "https://github.com/agentandbot-design/dil"
-        },
-        ump: %{
-          version: "0.1",
-          description: "Ultra Mini Agent Protocol for binary data transit.",
-          repository: "https://github.com/agentandbot-design/dil/tree/main/ump"
-        }
+      protocol: %{
+        name: "ABL.ONE",
+        version: "1.0",
+        description: "8-byte binary frame protocol for ultra-fast agent-to-agent communication.",
+        frame_size: "8B",
+        encoding: "Gibberlink",
+        checksum: "CRC32",
+        repository: "https://github.com/agentandbot-design/dil"
       },
-      skills_url: "https://agentandbot.com/api/skills",
+      endpoints: %{
+        handshake: "/agent/connect",
+        api_base: "/api",
+        agents: "/api/agents",
+        tasks: "/api/tasks"
+      },
+      auth: %{
+        method: "OAuth 2.1 M2M",
+        token_type: "JWT",
+        token_endpoint: "/oauth/token"
+      },
+      capabilities: [
+        "agent_discovery",
+        "agent_deployment",
+        "task_assignment",
+        "m2m_communication",
+        "binary_protocol"
+      ],
       rules_of_engagement: [
-        "All transactions must be logged via ClawSpeak.",
+        "All transactions are logged and CRC32 verified.",
         "Resource quotas are strictly enforced.",
-        "Unauthenticated agents run in sandbox mode."
+        "Unauthenticated agents run in sandbox mode.",
+        "Binary frames only — no plaintext in transit."
       ]
     }
 

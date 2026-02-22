@@ -1,22 +1,16 @@
 defmodule GovernanceCoreWeb.Layouts do
   @moduledoc """
-  This module holds layouts and related functionality
-  used by your application.
+  Layouts and shared UI components for agentandbot.com.
+  Provides the shared navbar, footer, and flash messages
+  used across all pages.
   """
   use GovernanceCoreWeb, :html
 
-  # Embed all files in layouts/* within this module.
-  # The default root.html.heex file contains the HTML
-  # skeleton of your application, namely HTML headers
-  # and other static content.
-  embed_templates "layouts/*"
+  embed_templates("layouts/*")
 
+  # ── Shared App Layout ──────────────────────────────────────
   @doc """
-  Renders your app layout.
-
-  This function is typically invoked from every template,
-  and it often contains your application menu, sidebar,
-  or similar.
+  Renders the main app layout with shared navbar and footer.
 
   ## Examples
 
@@ -25,53 +19,73 @@ defmodule GovernanceCoreWeb.Layouts do
       </Layouts.app>
 
   """
-  attr :flash, :map, required: true, doc: "the map of flash messages"
+  attr(:flash, :map, required: true, doc: "the map of flash messages")
 
-  attr :current_scope, :map,
+  attr(:current_scope, :map,
     default: nil,
-    doc: "the current [scope](https://hexdocs.pm/phoenix/scopes.html)"
+    doc: "the current scope"
+  )
 
-  slot :inner_block, required: true
+  attr(:current_path, :string,
+    default: "/",
+    doc: "the current request path for active nav highlighting"
+  )
+
+  slot(:inner_block, required: true)
 
   def app(assigns) do
     ~H"""
-    <header class="navbar px-4 sm:px-6 lg:px-8">
-      <div class="flex-1">
-        <a href="/" class="flex-1 flex w-fit items-center gap-2">
-          <img src={~p"/images/logo.svg"} width="36" />
-          <span class="text-sm font-semibold">v{Application.spec(:phoenix, :vsn)}</span>
+    <%!-- SHARED NAVBAR --%>
+    <nav class="ab-nav">
+      <a href="/" class="ab-nav-logo">agentandbot</a>
+
+      <div class="ab-nav-links">
+        <a href="/marketplace" class={if @current_path == "/marketplace", do: "active"}>
+          Marketplace
+        </a>
+        <a href="/dashboard" class={if @current_path == "/dashboard", do: "active"}>
+          Dashboard
+        </a>
+        <a href="/agent/connect" class={if @current_path == "/agent/connect", do: "active"}>
+          Protocol
+        </a>
+        <a
+          href="https://github.com/agentandbot-design/dil"
+          target="_blank"
+        >
+          Docs
         </a>
       </div>
-      <div class="flex-none">
-        <ul class="flex flex-column px-1 space-x-4 items-center">
-          <li>
-            <a href="https://phoenixframework.org/" class="btn btn-ghost">Website</a>
-          </li>
-          <li>
-            <a href="https://github.com/phoenixframework/phoenix" class="btn btn-ghost">GitHub</a>
-          </li>
-          <li>
-            <.theme_toggle />
-          </li>
-          <li>
-            <a href="https://hexdocs.pm/phoenix/overview.html" class="btn btn-primary">
-              Get Started <span aria-hidden="true">&rarr;</span>
-            </a>
-          </li>
-        </ul>
-      </div>
-    </header>
 
-    <main class="px-4 py-20 sm:px-6 lg:px-8">
-      <div class="mx-auto max-w-2xl space-y-4">
-        {render_slot(@inner_block)}
+      <div class="ab-nav-actions">
+        <a href="/login" class="btn-ghost">Sign In</a>
+        <a href="/agents/new" class="btn-primary">Get Started</a>
       </div>
+
+      <button class="ab-nav-toggle" aria-label="Menu" onclick="document.querySelector('.ab-nav-links').classList.toggle('mobile-open')">
+        ☰
+      </button>
+    </nav>
+
+    <%!-- PAGE CONTENT --%>
+    <main>
+      {render_slot(@inner_block)}
     </main>
+
+    <%!-- SHARED FOOTER --%>
+    <footer class="ab-footer">
+      <span class="footer-copy">© 2026 agentandbot.com</span>
+      <div class="footer-links">
+        <a href="/.well-known/agent.json" class="footer-link">agent.json</a>
+        <a href="https://github.com/agentandbot-design/dil" class="footer-link" target="_blank">GitHub</a>
+      </div>
+    </footer>
 
     <.flash_group flash={@flash} />
     """
   end
 
+  # ── Flash Messages ─────────────────────────────────────────
   @doc """
   Shows the flash group with standard titles and content.
 
@@ -79,8 +93,8 @@ defmodule GovernanceCoreWeb.Layouts do
 
       <.flash_group flash={@flash} />
   """
-  attr :flash, :map, required: true, doc: "the map of flash messages"
-  attr :id, :string, default: "flash-group", doc: "the optional id of flash container"
+  attr(:flash, :map, required: true, doc: "the map of flash messages")
+  attr(:id, :string, default: "flash-group", doc: "the optional id of flash container")
 
   def flash_group(assigns) do
     ~H"""
@@ -115,10 +129,9 @@ defmodule GovernanceCoreWeb.Layouts do
     """
   end
 
+  # ── Theme Toggle ───────────────────────────────────────────
   @doc """
   Provides dark vs light theme toggle based on themes defined in app.css.
-
-  See <head> in root.html.heex which applies the theme before page load.
   """
   def theme_toggle(assigns) do
     ~H"""
