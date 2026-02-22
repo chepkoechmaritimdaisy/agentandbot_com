@@ -1,74 +1,13 @@
 defmodule GovernanceCoreWeb.MarketplaceLive do
   use GovernanceCoreWeb, :live_view
 
-  @agents [
-    %{
-      id: "research-pro",
-      name: "ResearchAgent Pro",
-      description: "Scans and summarizes any topic from the web.",
-      category: "Research",
-      status: :active,
-      uptime: "99.8%",
-      tasks_done: 1_420,
-      price_monthly: 29
-    },
-    %{
-      id: "invoice-agent",
-      name: "Invoice Agent",
-      description: "Reads invoices from email or Telegram, extracts data, exports to CSV.",
-      category: "Finance",
-      status: :active,
-      uptime: "99.9%",
-      tasks_done: 8_203,
-      price_monthly: 49
-    },
-    %{
-      id: "expense-agent",
-      name: "Expense Agent",
-      description: "OCR receipts, categorize expenses, prepare accounting-ready records.",
-      category: "Finance",
-      status: :active,
-      uptime: "99.5%",
-      tasks_done: 3_870,
-      price_monthly: 39
-    },
-    %{
-      id: "email-agent",
-      name: "Email Agent",
-      description: "Monitors inbox, drafts replies, routes messages to the right agent.",
-      category: "Communication",
-      status: :active,
-      uptime: "99.7%",
-      tasks_done: 12_501,
-      price_monthly: 19
-    },
-    %{
-      id: "data-sync",
-      name: "DataSync Agent",
-      description: "Keeps your databases and spreadsheets in sync automatically.",
-      category: "Data",
-      status: :idle,
-      uptime: "98.1%",
-      tasks_done: 642,
-      price_monthly: 59
-    },
-    %{
-      id: "sap-agent",
-      name: "SAP Close Agent",
-      description: "Runs month-end closing tasks in SAP with audit trail.",
-      category: "Enterprise",
-      status: :active,
-      uptime: "99.9%",
-      tasks_done: 290,
-      price_monthly: 149
-    }
-  ]
+  alias GovernanceCore.Agents
 
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
      assign(socket,
-       agents: @agents,
+       agents: Agents.list_agents(),
        filter: "all",
        search: "",
        page_title: "Marketplace",
@@ -108,17 +47,13 @@ defmodule GovernanceCoreWeb.MarketplaceLive do
     end)
   end
 
-  defp status_color(:active), do: "var(--ok)"
-  defp status_color(:idle), do: "var(--idle)"
-  defp status_color(:error), do: "var(--err)"
+  defp status_class(:active), do: "active"
+  defp status_class(:idle), do: "idle"
+  defp status_class(:error), do: "error"
 
   defp status_label(:active), do: "Active"
   defp status_label(:idle), do: "Idle"
   defp status_label(:error), do: "Error"
-
-  defp status_class(:active), do: "active"
-  defp status_class(:idle), do: "idle"
-  defp status_class(:error), do: "error"
 
   defp format_number(n) do
     n
@@ -170,7 +105,7 @@ defmodule GovernanceCoreWeb.MarketplaceLive do
                 <p class="card-name"><%= agent.name %></p>
                 <p class="card-cat"><%= agent.category %></p>
               </div>
-              <div class="status-badge" style={"color: #{status_color(agent.status)}"}>
+              <div class="status-badge">
                 <span class={"status-dot #{status_class(agent.status)}"}></span>
                 <%= status_label(agent.status) %>
               </div>

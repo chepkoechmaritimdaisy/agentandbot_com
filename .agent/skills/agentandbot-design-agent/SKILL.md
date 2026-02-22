@@ -200,25 +200,28 @@ BACKEND ALANLARI: [Elixir şemasından gelen alanlar]
 
 ---
 
-## EKRAN KAYIT DEFTERİ (Screen Registry)
+## EKRAN KAYIT DEFTERİ (Screen Registry) — Dual Flow Architecture
 
+### Human Flow (7 Sayfa)
 | Ekran | Stitch ID | Backend Route | Durum |
 |-------|-----------|---------------|-------|
-| Landing Hero v1 | `f2ef0ffb406f4988afe1fb3757607378` | `/` | ✅ |
-| Landing Hero v2 | `f30966cd8dca48a3ae3f2182541d95c8` | `/` | ✅ |
-| Marketplace | `e0341c74f4014eacb3f9e6b020ef1b44` | `/marketplace` | ✅ |
-| Agent Detail v1 | `9d7b278db66e41b4bd22c9bef9e91a3d` | `/agents/:id` | ✅ |
-| Agent Detail v2 | `39ebe48c1c21442285526afba8a67ba6` | `/agents/:id` | ✅ |
-| User Dashboard | `aa080cbc65e9476f8eb314c467a0415d` | `/dashboard` | ✅ |
-| Agent Create Step 1 v1 | `ee057637c93948238f5c944956156ffe` | `/agents/new` | ✅ |
-| Agent Create Step 1 v2 | `96dd4540aaea4999bdfc0202a28e722b` | `/agents/new` | ✅ |
-| ABL.ONE Entry v1 | `32c2a65c9d744a50bd75402c02f6816e` | `/agent/connect` | ✅ |
-| ABL.ONE Entry v2 | `ecd1f96c62ed46819dc872df240d71c4` | `/agent/connect` | ✅ |
-| Agent Create Step 2 | — | `/agents/new/step2` | 🔲 |
-| Agent Create Step 3 | — | `/agents/new/step3` | 🔲 |
-| Error Durumları | — | global | 🔲 |
-| Swarm Status | — | `/swarm` | 🔲 |
-| Proof / Log View | — | `/agents/:id/logs` | 🔲 |
+| Landing (Design System v1) | `29c03c1ec00e4d6ab1e7b8c6375ff638` | `/` | ✅ |
+| Marketplace (Skill Hub Navy) | `f4ab75ab038147a595e50b14ec327f64` | `/marketplace` | ✅ |
+| Agent Detail (Console Strict) | `f4473b64b2134440b17898d2af74416f` | `/agents/:id` | ✅ |
+| Agent Create (Hiring) | `8251dc06c2e642899ef1d23ed1a6a300` | `/agents/new` | ✅ |
+| Dashboard (Operator) | `7742f978bbab412980b57e8f54e14ee7` | `/dashboard` | ✅ |
+| Agent Connect (Entry Point) | `ecd1f96c62ed46819dc872df240d71c4` | `/agent/connect` | ✅ |
+| Protocol Landing | `ecd1f96c62ed46819dc872df240d71c4` | `/agent/connect` | ✅ |
+
+### Machine Flow (API Endpoints)
+| Endpoint | Tip | Route | Durum |
+|----------|-----|-------|-------|
+| Agent Discovery | GET (JSON) | `/.well-known/agent.json` | ✅ |
+| Agent List | GET (JSON) | `/api/agents` | ✅ |
+| Agent Show | GET (JSON) | `/api/agents/:id` | ✅ |
+| Agent Create | POST (JSON) | `/api/agents` | ✅ |
+| Task Submit | POST (JSON) | `/api/tasks` | ✅ |
+| Task Show | GET (JSON) | `/api/tasks/:id` | ✅ |
 
 ---
 
