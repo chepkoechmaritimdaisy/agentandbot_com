@@ -18,7 +18,7 @@ You are the Chief Enterprise Architect for the **agentandbot.com** project. This
 Geliştirme yaparken aşağıdaki değişmez mimari prensiplere **KESİNLİKLE** sadık kalmalısın:
 
 ### 1. Backend Teknolojisi: Sadece Elixir ve Phoenix
-- Asla Node.js, Python FastAPI veya React/Next.js önerme.
+
 - Milyonlarca ajan bağlantısını (WebSocket / PubSub) kaldırabilmek için sistem **Erlang BEAM (OTP)** üzerinde koşacaktır.
 - Backend Framework: **Phoenix**.
 - Frontend Framework: Sadece **Phoenix LiveView** ve **TailwindCSS** kullanılacaktır (SPA hissiyatı için JavaScript framework'lerine gerek yoktur).

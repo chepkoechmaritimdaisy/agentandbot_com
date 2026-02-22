@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: governance-core
+    env: elixir
+    region: frankfurt
+    plan: free
+    buildCommand: "./assets/build.sh && mix phx.digest && mix release"
+    startCommand: "_build/prod/rel/governance_core/bin/governance_core start"
+    envVars:
+      - key: SECRET_KEY_BASE
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: governance-core-db
+          property: connectionString
+      - key: POOL_SIZE
+        value: "10"
+
+databases:
+  - name: governance-core-db
+    region: frankfurt
+    plan: free
+    databaseName: governance_core
+    user: governance_core

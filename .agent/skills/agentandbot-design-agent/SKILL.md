@@ -38,20 +38,7 @@ Her merge öncesi bu 4 adımı çalıştır:
 - Yeni alan eklendiyse → Stitch ekranında bu alan mevcut mu?
 - Alan silindiyse → herhangi bir `.heex` template'inde hâlâ referans var mı?
 
-### Adım 2 — API Alignment
-> Backend'in döndüğü veriler, Stitch ekranındaki alanlara birebir karşılık geliyor mu?
 
-### Adım 3 — Visual Warning
-> Backend değişikliği bir UX boşluğu yaratıyorsa → **ÇALIŞMAYI DURDUR, kullanıcıyı uyar:**
-
-```
-⚠️ SYNC ALERT: [ne değişti]
-[hangi Stitch ekranı] etkileniyor (ID: ...).
-Merge öncesi güncelleme gerekiyor. Şimdi Stitch'te düzeltelim mi?
-```
-
-### Adım 4 — Stitch Sync
-> Her implement edilmiş sayfanın güncel bir Stitch ekranı var mı?
 > Yoksa → `mcp_stitch_generate_screen_from_text` çalıştır, sonra devam et.
 
 ---
