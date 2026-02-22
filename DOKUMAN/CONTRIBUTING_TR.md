@@ -51,3 +51,22 @@ Yeni eklenen `Monitoring` modülü için testler `test/governance_core/monitorin
 ## İletişim
 
 Herhangi bir sorunuz varsa `agentandbot-design` ekibiyle iletişime geçebilirsiniz.
+
+## ClawHub Skill Monitor (YENİ)
+
+Bu özellik, `clawhub.ai` üzerinde yeni bir yetenek (skill) oluşturulduğunda veya güncellendiğinde bildirim gönderir.
+
+### Nasıl Kullanılır?
+
+1.  **Scripti Çalıştırın:**
+    Yeni bir terminalde:
+    ```bash
+    python3 monitor_clawhub.py
+    ```
+
+2.  **Konfigürasyon:**
+    Script içerisinde `CLAWHUB_TOKEN` değişkeni tanımlanmıştır: `clh_Lax3aENJNUhPsOmKbpQVO0bt0fof4PSB94HaN0RGLaA`.
+    Bu token ile ClawHub API'sine erişim sağlanır (şu an simülasyon modundadır).
+
+3.  **Gözlemleyin:**
+    Arayüzde (`/agent/connect`) "ClawHub System" kullanıcısından gelen "Skill Created" veya "Skill Updated" mesajlarını göreceksiniz.
