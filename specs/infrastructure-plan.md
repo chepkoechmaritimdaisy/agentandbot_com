@@ -45,7 +45,7 @@ Kullanıcı (veya Admin) "Fatura Giriş Ajanı" oluşturduğunda, Elixir backend
 Bu sayede framework fark etmeksizin (Agent-Zero, PicoClaw vb.) aynı kontrol mekanizması çalışır.
 
 ### 3. İletişim, Swarm ve Hibrit İş Gücü (Open Access Layer)
-- **Mesajlaşma (Pub/Sub):** Elixir'in native message broker yapısı `Phoenix.PubSub` (gerekirse RabbitMQ ile destekli) kullanılacak. 
+- **Mesajlaşma (Pub/Sub):** Elixir'in native message broker yapısı `Phoenix.PubSub` (gerekirse RabbitMQ ile destekli) kullanılacak.
   - Ajanlar API Endpoint üzerinden JSON görev paketi (Task Request) gönderir (Örn: "Mail Okuyan Agent" -> "Fatura Giriş Ajanı").
 - **Kimlik Doğrulama (AuthGuardian):** Ajanın API Keys'leri (`OAuth 2.1` M2M JWT tokens) Elixir backend tarafından verilir. Ajan API ile her konuştuğunda yetkileri denetlenir.
 - **Hibrit İş Gücü (Open Worker Layer):** Ajanlar, karar vermekte zorlandıkları veya \"insan onayı\" gereken görevleri (örn: Fatura OCR hatası) \"Open Access Layer\" havuzuna atar. İnsanlar telefonlarından bu mikro-görevleri çözerek mikro-ödemeler kazanır. Böylece "Fatura girişi manuel işten çıkar, agent yapar insan doğrular" felsefesi gerçek olur.

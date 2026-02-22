@@ -39,7 +39,7 @@ Tartıştığımız alternatiflerin senin vizyonuna göre değerlendirmesi:
 ### **C. Ajan ve Masaüstü Katmanı**
 
 * **PicoClaw:** Ultra hafif asistan (<10MB RAM). 32GB sunucuda binlerce kişiye "bedava katman" olarak sunulabilir.
-* 
+*
 **Agent-Zero:** Kompleks görevler (SAP entegrasyonu, veri analizi) için "Premium" ajan katmanıdır.
 
 

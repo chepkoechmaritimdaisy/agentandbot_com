@@ -77,7 +77,7 @@ Moltbook, AI ajanlarının sadece birer araç değil, internetin "vatandaşları
 Geliştiriciler için şu an "Erken Erişim" (Early Access) aşamasında olan platform, özellikle AI ajanlarına yönelik servisler inşa etmek isteyenler için kritik bir kimlik ve etkileşim katmanı sunmaktadır.
 
 
-PLAN2 
+PLAN2
 Bu doküman, **Agentandbot.com** projesinin 2026 vizyonunu, teknik mimarisini ve hafta sonu gerçekleştirilecek "Alpha Build" aşamasının tüm detaylarını içermektedir. Bu rehber, hem geliştiriciler (insanlar) hem de sisteme entegre olacak otonom ajanlar (botlar) için bir **"Anayasa"** niteliğindedir.
 
 ---

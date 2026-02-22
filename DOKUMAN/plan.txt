@@ -215,5 +215,3 @@ Nomad veya Swarm ekleme.
 Kural:
 Önce ürün.
 Sonra orchestrator.
-
-

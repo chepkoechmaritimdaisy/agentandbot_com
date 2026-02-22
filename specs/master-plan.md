@@ -1,5 +1,5 @@
 # Agentandbot — Master Implementation Plan
-**Versiyon:** v1.1 | **Tarih:** 2026-02-22  
+**Versiyon:** v1.1 | **Tarih:** 2026-02-22
 **Durum:** 🟡 Dizayn tamamlandı → Development başlıyor
 
 ---
@@ -35,7 +35,7 @@
 ## Faz 1 — MVP (Şu An Aktif)
 
 ### 🎨 Design Agent Görevleri
-- [x] Landing Page Hero (done — Stitch)  
+- [x] Landing Page Hero (done — Stitch)
 - [x] Marketplace ekranı (done — Stitch)
 - [x] Agent Detail sayfası (done — Stitch)
 - [x] User Dashboard (done — Stitch)

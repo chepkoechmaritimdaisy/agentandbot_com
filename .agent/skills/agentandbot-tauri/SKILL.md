@@ -117,7 +117,7 @@ cargo tauri ios init
 }
 ```
 
-**Dev modunda:** `url: "http://localhost:4001"` → Phoenix devserver'ı kullanır.  
+**Dev modunda:** `url: "http://localhost:4001"` → Phoenix devserver'ı kullanır.
 **Production'da:** Phoenix release binary'i Tauri içine gömülür (sidecar pattern).
 
 ---
