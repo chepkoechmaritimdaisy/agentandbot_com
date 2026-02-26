@@ -35,29 +35,57 @@ defmodule GovernanceCore.AXAudit do
     Logger.info("Starting Continuous AX Audit...")
 
     base_url = GovernanceCoreWeb.Endpoint.url()
-    endpoints = ["/", "/agents", "/dashboard/traffic"]
+    html_endpoints = ["/", "/agents", "/dashboard/traffic"]
+    mcp_endpoints = ["/api/agents", "/.well-known/agent.json"]
 
-    results = Enum.map(endpoints, fn path ->
+    html_results = Enum.map(html_endpoints, fn path ->
       url = base_url <> path
-      check_endpoint(url)
+      check_html_endpoint(url)
     end)
 
-    failures = Enum.filter(results, fn {status, _} -> status == :error end)
+    mcp_results = Enum.map(mcp_endpoints, fn path ->
+      url = base_url <> path
+      check_mcp_endpoint(url)
+    end)
+
+    failures = Enum.filter(html_results ++ mcp_results, fn {status, _} -> status == :error end)
 
     if Enum.empty?(failures) do
       Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
     else
       Logger.error("AX Audit Failed: #{inspect(failures)}")
+      # In a real scenario, this would trigger a PR creation or alert.
+      Logger.info("Suggested Fix: Check logs for details and optimize endpoint performance or schema.")
     end
   end
 
-  defp check_endpoint(url) do
+  defp check_html_endpoint(url) do
     case Req.get(url) do
       {:ok, %{status: 200, body: body}} ->
         if is_agent_friendly?(body) do
           {:ok, url}
         else
           {:error, "Endpoint #{url} is not agent-friendly (missing semantic tags or too complex)"}
+        end
+      {:ok, %{status: status}} ->
+        {:error, "Endpoint #{url} returned status #{status}"}
+      {:error, reason} ->
+        {:error, "Failed to fetch #{url}: #{inspect(reason)}"}
+    end
+  end
+
+  defp check_mcp_endpoint(url) do
+    start_time = System.monotonic_time(:millisecond)
+    case Req.get(url) do
+      {:ok, %{status: 200, body: body}} ->
+        duration = System.monotonic_time(:millisecond) - start_time
+        if duration > 500 do
+          {:error, "Endpoint #{url} took too long: #{duration}ms"}
+        else
+          case Jason.decode(body) do
+            {:ok, _json} -> {:ok, url}
+            {:error, _} -> {:error, "Endpoint #{url} returned invalid JSON"}
+          end
         end
       {:ok, %{status: status}} ->
         {:error, "Endpoint #{url} returned status #{status}"}
