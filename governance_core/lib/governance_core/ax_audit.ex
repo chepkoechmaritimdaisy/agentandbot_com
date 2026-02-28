@@ -35,23 +35,36 @@ defmodule GovernanceCore.AXAudit do
     Logger.info("Starting Continuous AX Audit...")
 
     base_url = GovernanceCoreWeb.Endpoint.url()
-    endpoints = ["/", "/agents", "/dashboard/traffic"]
 
-    results = Enum.map(endpoints, fn path ->
+    # HTML Endpoints
+    html_endpoints = ["/", "/agents", "/dashboard/traffic"]
+
+    # MCP Endpoints
+    mcp_endpoints = ["/api/agents", "/.well-known/agent.json"]
+
+    html_results = Enum.map(html_endpoints, fn path ->
       url = base_url <> path
-      check_endpoint(url)
+      check_html_endpoint(url)
     end)
 
-    failures = Enum.filter(results, fn {status, _} -> status == :error end)
+    mcp_results = Enum.map(mcp_endpoints, fn path ->
+      url = base_url <> path
+      check_mcp_endpoint(url)
+    end)
+
+    all_results = html_results ++ mcp_results
+
+    failures = Enum.filter(all_results, fn {status, _} -> status == :error end)
 
     if Enum.empty?(failures) do
       Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
     else
       Logger.error("AX Audit Failed: #{inspect(failures)}")
+      prepare_fix_pr(failures)
     end
   end
 
-  defp check_endpoint(url) do
+  defp check_html_endpoint(url) do
     case Req.get(url) do
       {:ok, %{status: 200, body: body}} ->
         if is_agent_friendly?(body) do
@@ -74,5 +87,49 @@ defmodule GovernanceCore.AXAudit do
     # but we can check if the ratio of script tags to content is high or just ensure main content exists.
 
     has_main && has_h1
+  end
+
+  defp check_mcp_endpoint(url) do
+    start_time = System.monotonic_time()
+
+    # Pass decode_body: false so we can validate raw JSON manually
+    case Req.get(url, decode_body: false) do
+      {:ok, %{status: 200, body: body}} ->
+        end_time = System.monotonic_time()
+        # Calculate response time in milliseconds
+        response_time_ms = System.convert_time_unit(end_time - start_time, :native, :millisecond)
+
+        cond do
+          response_time_ms > 1000 ->
+            {:error, "Endpoint #{url} response time too long: #{response_time_ms}ms"}
+          not valid_json_schema?(body) ->
+            {:error, "Endpoint #{url} returned invalid JSON schema"}
+          true ->
+            {:ok, url}
+        end
+
+      {:ok, %{status: status}} ->
+        {:error, "Endpoint #{url} returned status #{status}"}
+      {:error, reason} ->
+        {:error, "Failed to fetch #{url}: #{inspect(reason)}"}
+    end
+  end
+
+  defp valid_json_schema?(body) when is_map(body), do: true
+  defp valid_json_schema?(body) when is_list(body), do: true
+  defp valid_json_schema?(body) do
+    case Jason.decode(body) do
+      {:ok, _} -> true
+      {:error, _} -> false
+    end
+  end
+
+  defp prepare_fix_pr(failures) do
+    Logger.info("Preparing PR to fix AX Audit failures...")
+    # In a real scenario, this would generate a PR or alert the team.
+    # For now, we simulate logging the PR generation.
+    Enum.each(failures, fn {:error, reason} ->
+      Logger.warning("Automated Fix PR suggested for: #{reason}")
+    end)
   end
 end
