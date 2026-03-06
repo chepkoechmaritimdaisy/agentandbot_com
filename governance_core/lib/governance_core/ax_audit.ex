@@ -35,23 +35,48 @@ defmodule GovernanceCore.AXAudit do
     Logger.info("Starting Continuous AX Audit...")
 
     base_url = GovernanceCoreWeb.Endpoint.url()
-    endpoints = ["/", "/agents", "/dashboard/traffic"]
+    html_endpoints = ["/", "/agents", "/dashboard/traffic"]
+    mcp_endpoints = ["/api/agents", "/.well-known/agent.json"]
 
-    results = Enum.map(endpoints, fn path ->
+    html_results = Enum.map(html_endpoints, fn path ->
       url = base_url <> path
-      check_endpoint(url)
+      check_html_endpoint(url)
     end)
 
-    failures = Enum.filter(results, fn {status, _} -> status == :error end)
+    mcp_results = Enum.map(mcp_endpoints, fn path ->
+      url = base_url <> path
+      check_mcp_endpoint(url)
+    end)
+
+    failures = Enum.filter(html_results ++ mcp_results, fn {status, _} -> status == :error end)
 
     if Enum.empty?(failures) do
       Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
     else
       Logger.error("AX Audit Failed: #{inspect(failures)}")
+      prepare_fix_pr(failures)
     end
   end
 
-  defp check_endpoint(url) do
+  defp prepare_fix_pr(failures) do
+    # Creates an issue / PR using the 'gh' CLI or similar
+    Logger.info("Preparing automated PR for AX Audit failures...")
+
+    issue_title = "Automated AX Audit Fix Required"
+    issue_body = "The following endpoints failed the Agent-Friendly (AX) Audit:\n\n" <> Enum.map_join(failures, "\n", fn {_status, msg} -> "- #{msg}" end)
+
+    case System.cmd("gh", ["issue", "create", "--title", issue_title, "--body", issue_body]) do
+      {output, 0} ->
+        Logger.info("Successfully created issue/PR tracker: #{String.trim(output)}")
+      {error_msg, _code} ->
+        Logger.error("Failed to create PR via gh CLI. Ensure gh is installed and authenticated. Error: #{error_msg}")
+    end
+  rescue
+    e in ErlangError ->
+      Logger.warning("Encountered error preparing PR with gh CLI: #{inspect(e)}")
+  end
+
+  defp check_html_endpoint(url) do
     case Req.get(url) do
       {:ok, %{status: 200, body: body}} ->
         if is_agent_friendly?(body) do
@@ -66,7 +91,31 @@ defmodule GovernanceCore.AXAudit do
     end
   end
 
-  defp is_agent_friendly?(html) do
+  defp check_mcp_endpoint(url) do
+    start_time = System.monotonic_time()
+
+    case Req.get(url, decode_body: false) do
+      {:ok, %{status: 200, body: body}} ->
+        end_time = System.monotonic_time()
+        duration_ms = System.convert_time_unit(end_time - start_time, :native, :millisecond)
+
+        cond do
+          duration_ms > 1000 ->
+            {:error, "Endpoint #{url} response time too long (#{duration_ms}ms)"}
+          true ->
+            case Jason.decode(body) do
+              {:ok, _json} -> {:ok, url}
+              {:error, _} -> {:error, "Endpoint #{url} returned invalid JSON schema"}
+            end
+        end
+      {:ok, %{status: status}} ->
+        {:error, "Endpoint #{url} returned status #{status}"}
+      {:error, reason} ->
+        {:error, "Failed to fetch #{url}: #{inspect(reason)}"}
+    end
+  end
+
+  def is_agent_friendly?(html) do
     # Simple heuristic checks for semantic structure
     has_main = String.contains?(html, "<main")
     has_h1 = String.contains?(html, "<h1")
