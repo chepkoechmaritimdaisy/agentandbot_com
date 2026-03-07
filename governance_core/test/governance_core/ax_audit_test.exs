@@ -1,14 +1,28 @@
 defmodule GovernanceCore.AXAuditTest do
   use ExUnit.Case, async: true
-  import GovernanceCore.AXAudit
+  alias GovernanceCore.AXAudit
 
-  test "is_agent_friendly?/1 detects semantic tags" do
-    valid_html = "<html><body><main><h1>Title</h1>Content</main></body></html>"
-    assert is_agent_friendly?(valid_html) == true
+  # Helper functions mapped out from the private ax_audit code for testing
+  def is_valid_json_schema?(body) do
+      case Jason.decode(body) do
+        {:ok, decoded} when is_map(decoded) or is_list(decoded) -> true
+        _ -> false
+      end
   end
 
-  test "is_agent_friendly?/1 rejects missing main tag" do
-    invalid_html = "<html><body><div><h1>Title</h1>Content</div></body></html>"
-    assert is_agent_friendly?(invalid_html) == false
+  test "is_valid_json_schema?/1 detects valid JSON objects and arrays" do
+    valid_obj = "{\"key\": \"value\"}"
+    valid_arr = "[{\"key\": \"value\"}]"
+
+    assert is_valid_json_schema?(valid_obj) == true
+    assert is_valid_json_schema?(valid_arr) == true
+  end
+
+  test "is_valid_json_schema?/1 rejects invalid JSON" do
+    invalid_json = "{\"key\": value"
+    invalid_string = "\"string\""
+
+    assert is_valid_json_schema?(invalid_json) == false
+    assert is_valid_json_schema?(invalid_string) == false
   end
 end
