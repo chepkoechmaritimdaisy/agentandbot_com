@@ -35,23 +35,47 @@ defmodule GovernanceCore.AXAudit do
     Logger.info("Starting Continuous AX Audit...")
 
     base_url = GovernanceCoreWeb.Endpoint.url()
-    endpoints = ["/", "/agents", "/dashboard/traffic"]
+    html_endpoints = ["/", "/agents", "/dashboard/traffic"]
+    mcp_endpoints = ["/api/agents", "/.well-known/agent.json"]
 
-    results = Enum.map(endpoints, fn path ->
+    results_html = Enum.map(html_endpoints, fn path ->
       url = base_url <> path
-      check_endpoint(url)
+      check_endpoint_html(url)
     end)
 
+    results_mcp = Enum.map(mcp_endpoints, fn path ->
+      url = base_url <> path
+      check_endpoint_mcp(url)
+    end)
+
+    results = results_html ++ results_mcp
     failures = Enum.filter(results, fn {status, _} -> status == :error end)
 
     if Enum.empty?(failures) do
       Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
     else
       Logger.error("AX Audit Failed: #{inspect(failures)}")
+      handle_failures(failures)
     end
   end
 
-  defp check_endpoint(url) do
+  defp handle_failures(failures) do
+    failure_details = Enum.map_join(failures, "\n", fn {:error, reason} -> "- #{reason}" end)
+
+    body = """
+    AX Audit Failure Detected:
+
+    #{failure_details}
+    """
+
+    # Create an issue using gh CLI
+    case System.cmd("gh", ["issue", "create", "--title", "AX Audit Failure", "--body", body, "--label", "bug,agent-friendly"]) do
+      {output, 0} -> Logger.info("Automatically created issue for AX Audit failure: #{output}")
+      {error_output, status} -> Logger.error("Failed to create issue automatically. gh exit status: #{status}, output: #{error_output}")
+    end
+  end
+
+  defp check_endpoint_html(url) do
     case Req.get(url) do
       {:ok, %{status: 200, body: body}} ->
         if is_agent_friendly?(body) do
@@ -61,6 +85,33 @@ defmodule GovernanceCore.AXAudit do
         end
       {:ok, %{status: status}} ->
         {:error, "Endpoint #{url} returned status #{status}"}
+      {:error, reason} ->
+        {:error, "Failed to fetch #{url}: #{inspect(reason)}"}
+    end
+  end
+
+  defp check_endpoint_mcp(url) do
+    start_time = System.monotonic_time(:millisecond)
+
+    # Use decode_body: false to safely handle invalid JSON without crashing
+    case Req.get(url, decode_body: false) do
+      {:ok, %{status: 200, body: body}} ->
+        end_time = System.monotonic_time(:millisecond)
+        duration = end_time - start_time
+
+        if duration > 1000 do # Threshold 1s
+          {:error, "Endpoint #{url} response time is too slow (#{duration}ms)"}
+        else
+          # Manually verify valid JSON schema
+          case Jason.decode(body) do
+            {:ok, _json} -> {:ok, url}
+            {:error, _reason} -> {:error, "Endpoint #{url} returned invalid JSON schema"}
+          end
+        end
+
+      {:ok, %{status: status}} ->
+        {:error, "Endpoint #{url} returned status #{status}"}
+
       {:error, reason} ->
         {:error, "Failed to fetch #{url}: #{inspect(reason)}"}
     end
