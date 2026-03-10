@@ -36,13 +36,20 @@ defmodule GovernanceCore.AXAudit do
 
     base_url = GovernanceCoreWeb.Endpoint.url()
     endpoints = ["/", "/agents", "/dashboard/traffic"]
+    mcp_endpoints = ["/api/agents", "/.well-known/agent.json"]
 
     results = Enum.map(endpoints, fn path ->
       url = base_url <> path
       check_endpoint(url)
     end)
 
-    failures = Enum.filter(results, fn {status, _} -> status == :error end)
+    mcp_results = Enum.map(mcp_endpoints, fn path ->
+      url = base_url <> path
+      check_mcp_endpoint(url)
+    end)
+
+    all_results = results ++ mcp_results
+    failures = Enum.filter(all_results, fn {status, _} -> status == :error end)
 
     if Enum.empty?(failures) do
       Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
@@ -63,6 +70,41 @@ defmodule GovernanceCore.AXAudit do
         {:error, "Endpoint #{url} returned status #{status}"}
       {:error, reason} ->
         {:error, "Failed to fetch #{url}: #{inspect(reason)}"}
+    end
+  end
+
+  defp check_mcp_endpoint(url) do
+    start_time = System.monotonic_time(:millisecond)
+
+    # Use decode_body: false to safely handle potentially invalid JSON
+    case Req.get(url, decode_body: false, max_retries: 0) do
+      {:ok, %{status: 200, body: body}} ->
+        end_time = System.monotonic_time(:millisecond)
+        duration = end_time - start_time
+
+        cond do
+          duration > 1000 ->
+            {:error, "MCP Endpoint #{url} response time too slow: #{duration}ms"}
+
+          not valid_json?(body) ->
+            {:error, "MCP Endpoint #{url} returned invalid JSON schema"}
+
+          true ->
+            {:ok, url}
+        end
+
+      {:ok, %{status: status}} ->
+        {:error, "MCP Endpoint #{url} returned status #{status}"}
+
+      {:error, reason} ->
+        {:error, "Failed to fetch MCP endpoint #{url}: #{inspect(reason)}"}
+    end
+  end
+
+  defp valid_json?(body) do
+    case Jason.decode(body) do
+      {:ok, data} when is_map(data) or is_list(data) -> true
+      _ -> false
     end
   end
 
