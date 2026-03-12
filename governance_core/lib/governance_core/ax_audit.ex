@@ -35,7 +35,7 @@ defmodule GovernanceCore.AXAudit do
     Logger.info("Starting Continuous AX Audit...")
 
     base_url = GovernanceCoreWeb.Endpoint.url()
-    endpoints = ["/", "/agents", "/dashboard/traffic"]
+    endpoints = ["/api/agents", "/.well-known/agent.json"]
 
     results = Enum.map(endpoints, fn path ->
       url = base_url <> path
@@ -48,31 +48,46 @@ defmodule GovernanceCore.AXAudit do
       Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
     else
       Logger.error("AX Audit Failed: #{inspect(failures)}")
+      handle_failures(failures)
     end
   end
 
   defp check_endpoint(url) do
-    case Req.get(url) do
+    start_time = System.monotonic_time()
+
+    case Req.get(url, decode_body: false) do
       {:ok, %{status: 200, body: body}} ->
-        if is_agent_friendly?(body) do
-          {:ok, url}
+        end_time = System.monotonic_time()
+        response_time_ms = System.convert_time_unit(end_time - start_time, :native, :millisecond)
+
+        # Arbitrary response time threshold, e.g. 500ms
+        if response_time_ms > 500 do
+          {:error, "Endpoint #{url} response time too slow: #{response_time_ms}ms"}
         else
-          {:error, "Endpoint #{url} is not agent-friendly (missing semantic tags or too complex)"}
+          case Jason.decode(body) do
+            {:ok, _json} -> {:ok, url}
+            {:error, _} -> {:error, "Endpoint #{url} returned invalid JSON"}
+          end
         end
+
       {:ok, %{status: status}} ->
         {:error, "Endpoint #{url} returned status #{status}"}
+
       {:error, reason} ->
         {:error, "Failed to fetch #{url}: #{inspect(reason)}"}
     end
   end
 
-  defp is_agent_friendly?(html) do
-    # Simple heuristic checks for semantic structure
-    has_main = String.contains?(html, "<main")
-    has_h1 = String.contains?(html, "<h1")
-    # Check for excessive script usage might be tricky with simple string matching,
-    # but we can check if the ratio of script tags to content is high or just ensure main content exists.
+  defp handle_failures(failures) do
+    # Create issue/PR using gh cli
+    # Prepare failure report
+    report = Enum.map_join(failures, "\n", fn {:error, reason} -> "- #{reason}" end)
 
-    has_main && has_h1
+    Logger.info("Triggering automated PR/issue for AX Audit failures")
+
+    # This is a sample representation of creating an issue and a PR.
+    # A real script might create a branch, fix the issue, commit, and then create PR.
+    # Here we simulate logging the issue with gh.
+    System.cmd("gh", ["issue", "create", "--title", "Automated: AX Audit Failure", "--body", report])
   end
 end
