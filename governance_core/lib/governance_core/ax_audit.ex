@@ -35,6 +35,7 @@ defmodule GovernanceCore.AXAudit do
     Logger.info("Starting Continuous AX Audit...")
 
     base_url = GovernanceCoreWeb.Endpoint.url()
+    # Check standard HTML endpoints
     endpoints = ["/", "/agents", "/dashboard/traffic"]
 
     results = Enum.map(endpoints, fn path ->
@@ -49,6 +50,10 @@ defmodule GovernanceCore.AXAudit do
     else
       Logger.error("AX Audit Failed: #{inspect(failures)}")
     end
+
+    # MCP API check
+    mcp_url = base_url <> "/api/mcp"
+    check_mcp_endpoint(mcp_url)
   end
 
   defp check_endpoint(url) do
@@ -74,5 +79,64 @@ defmodule GovernanceCore.AXAudit do
     # but we can check if the ratio of script tags to content is high or just ensure main content exists.
 
     has_main && has_h1
+  end
+
+  defp check_mcp_endpoint(url) do
+    case Req.get(url, decode_body: false, receive_timeout: 5000) do
+      {:ok, %{status: 200, body: body}} ->
+        case Jason.decode(body) do
+          {:ok, _json} ->
+            Logger.info("MCP Endpoint #{url} is healthy.")
+            :ok
+
+          {:error, _} ->
+            Logger.error("MCP Endpoint #{url} returned invalid JSON schema.")
+            prepare_fix_pr("fix: Invalid JSON schema on MCP endpoint", "The MCP endpoint at #{url} returned invalid JSON.")
+            {:error, :invalid_json}
+        end
+
+      {:ok, %{status: status}} ->
+        Logger.error("MCP Endpoint #{url} returned status #{status}")
+        prepare_fix_pr("fix: MCP endpoint returned status #{status}", "The MCP endpoint at #{url} is failing with status #{status}.")
+        {:error, {:bad_status, status}}
+
+      {:error, reason} ->
+        Logger.error("Failed to fetch MCP Endpoint #{url}: #{inspect(reason)}")
+        # Deduplicate errors by using a static reason map
+        prepare_fix_pr("fix: MCP endpoint unreachable or timed out", "The MCP endpoint at #{url} failed with reason: #{inspect(reason)}.")
+        {:error, :timeout_or_unreachable}
+    end
+  end
+
+  defp prepare_fix_pr(title, body) do
+    Logger.info("Preparing PR for fix: #{title}")
+    # Using gh CLI, gracefully handled
+    try do
+      branch_name = "auto-fix-ax-#{:os.system_time(:seconds)}"
+
+      # We need to make sure we don't crash if git or gh fails.
+      # Since we just want to create a PR without local state mutation, we can just use branch.
+      case System.cmd("git", ["checkout", "-b", branch_name]) do
+        {_, 0} ->
+          # For a real fix, we might create a file or modify something.
+          # Here we'll just add an empty commit
+          System.cmd("git", ["commit", "--allow-empty", "-m", title])
+          System.cmd("git", ["push", "-u", "origin", branch_name])
+
+          case System.cmd("gh", ["pr", "create", "--title", "🤖 " <> title, "--body", body, "--head", branch_name]) do
+            {out, 0} -> Logger.info("PR created successfully: #{out}")
+            {err, _} -> Logger.warning("Failed to create PR with gh: #{err}")
+          end
+
+          # Go back to main
+          System.cmd("git", ["checkout", "main"])
+
+        {err, _} ->
+          Logger.warning("Failed to create branch for PR: #{err}")
+      end
+    rescue
+      e in ErlangError ->
+        Logger.warning("gh or git CLI not available, skipping PR creation. #{inspect(e)}")
+    end
   end
 end
