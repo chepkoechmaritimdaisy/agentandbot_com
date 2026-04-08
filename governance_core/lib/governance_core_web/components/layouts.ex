@@ -35,51 +35,144 @@ defmodule GovernanceCoreWeb.Layouts do
 
   def app(assigns) do
     ~H"""
-    <%!-- SHARED NAVBAR --%>
-    <nav class="ab-nav">
-      <a href="/" class="ab-nav-logo">agentandbot</a>
+    <div class="flex h-screen bg-base-300 font-sans text-base-content overflow-hidden">
+      <%!-- SIDEBAR (Navigation & Entity Switcher) --%>
+      <aside id="main-sidebar" class="w-64 flex-none border-r border-base-content/5 flex flex-col bg-base-200">
+        <div class="p-6 border-b border-base-content/5 flex items-center justify-between">
+          <a href="/" class="text-xl font-black tracking-tight text-primary">swarm.os</a>
+          <.icon name="hero-command-line" class="size-5 opacity-50" />
+        </div>
 
-      <div class="ab-nav-links">
-        <a href="/marketplace" class={if @current_path == "/marketplace", do: "active"}>
-          Marketplace
-        </a>
-        <a href="/dashboard" class={if @current_path == "/dashboard", do: "active"}>
-          Dashboard
-        </a>
-        <a href="/agent/connect" class={if @current_path == "/agent/connect", do: "active"}>
-          Protocol
-        </a>
-        <a
-          href="https://github.com/agentandbot-design/dil"
-          target="_blank"
-        >
-          Docs
-        </a>
+        <%!-- ENTITY SWITCHER --%>
+        <div class="px-4 py-4 border-b border-base-content/5">
+          <div class="dropdown w-full">
+            <div tabindex="0" role="button" class="btn btn-ghost btn-sm w-full justify-between border border-base-content/10">
+              <div class="flex items-center gap-2 overflow-hidden">
+                <div class="size-4 rounded-full bg-primary flex-none"></div>
+                <span class="truncate">Harezm Group</span>
+              </div>
+              <.icon name="hero-chevron-up-down-mini" class="size-4 opacity-50" />
+            </div>
+            <ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-52 mt-2">
+              <li><a>eny.com.tr</a></li>
+              <li><a>YouTube Hub</a></li>
+              <li><a>ipcioglu Commerce</a></li>
+              <div class="divider my-1"></div>
+              <li><a class="text-xs">+ New Entity</a></li>
+            </ul>
+          </div>
+        </div>
+
+        <%!-- MAIN NAV --%>
+        <nav class="flex-1 overflow-y-auto px-4 py-6 space-y-1">
+          <div class="text-[10px] font-bold uppercase opacity-40 px-2 mb-2 tracking-widest">Main</div>
+          
+          <.link navigate={~p"/"} class={["flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm font-medium hover:bg-base-content/5", @current_path == "/" && "bg-primary text-primary-content hover:bg-primary/90"]}>
+            <.icon name="hero-squares-2x2" class="size-5" />
+            <span>Command Hub</span>
+          </.link>
+
+          <.link navigate={~p"/personas"} class={["flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm font-medium hover:bg-base-content/5", @current_path == "/personas" && "bg-primary text-primary-content hover:bg-primary/90"]}>
+            <.icon name="hero-user-group" class="size-5" />
+            <span>Personas</span>
+          </.link>
+
+          <.link navigate={~p"/scenarios"} class={["flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm font-medium hover:bg-base-content/5", @current_path == "/scenarios" && "bg-primary text-primary-content hover:bg-primary/90"]}>
+            <.icon name="hero-rectangle-stack" class="size-5" />
+            <span>Scenarios</span>
+          </.link>
+
+          <div class="text-[10px] font-bold uppercase opacity-40 px-2 mt-8 mb-2 tracking-widest">Financials</div>
+          
+          <.link navigate={~p"/governance"} class={["flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm font-medium hover:bg-base-content/5", @current_path == "/governance" && "bg-primary text-primary-content hover:bg-primary/90"]}>
+            <.icon name="hero-wallet" class="size-5" />
+            <span>Wallet & AP2</span>
+          </.link>
+        </nav>
+
+        <%!-- FOOTER NAV --%>
+        <div class="p-4 border-t border-base-content/5 space-y-4">
+          <div class="flex items-center justify-between px-2">
+            <span class="text-[10px] font-mono opacity-50 uppercase">v0.1.0-alpha</span>
+            <.theme_toggle />
+          </div>
+          
+          <div class="flex items-center gap-3 p-2 rounded-lg bg-base-300 border border-base-content/5">
+             <div class="avatar placeholder">
+              <div class="bg-primary text-primary-content w-8 rounded-full">
+                <span class="text-xs">U</span>
+              </div>
+            </div>
+            <div class="flex-1 overflow-hidden">
+              <p class="text-xs font-bold truncate">User Persona</p>
+              <p class="text-[10px] opacity-50 truncate">admin@harezm.com</p>
+            </div>
+            <button class="btn btn-ghost btn-xs btn-circle"><.icon name="hero-cog-6-tooth" class="size-4" /></button>
+          </div>
+        </div>
+      </aside>
+
+      <%!-- MAIN CONTENT AREA --%>
+      <div class="flex-1 flex flex-col min-w-0 bg-base-100 relative">
+        <%!-- TOP HEADER (Page Specific Info) --%>
+        <header class="h-16 flex-none border-b border-base-content/5 flex items-center justify-between px-8 bg-base-100/50 backdrop-blur-md sticky top-0 z-10">
+          <h2 class="text-lg font-bold tracking-tight">
+            <%= case @current_path do %>
+              <% "/" -> %> Dashboard
+              <% "/personas" -> %> Persona Directory
+              <% "/scenarios" -> %> Active Scenarios
+              <% "/governance" -> %> Governance & Wallet
+              <% _ -> %> Swarm OS
+            <% end %>
+          </h2>
+
+          <div class="flex items-center gap-4">
+             <div class="badge badge-outline border-base-content/10 gap-2 px-3 py-3">
+              <div class="size-2 rounded-full bg-success animate-pulse"></div>
+              <span class="text-[10px] font-bold uppercase tracking-wider">System Live</span>
+            </div>
+            <button class="btn btn-ghost btn-sm btn-circle relative" onclick="document.getElementById('chat-drawer').classList.toggle('open')">
+              <.icon name="hero-chat-bubble-left-right" class="size-5" />
+              <span class="absolute top-1 right-1 size-2 bg-primary rounded-full"></span>
+            </button>
+          </div>
+        </header>
+
+        <%!-- SCROLLABLE CONTENT --%>
+        <main class="flex-1 overflow-y-auto p-8">
+          <div class="max-w-6xl mx-auto">
+            {render_slot(@inner_block)}
+          </div>
+        </main>
       </div>
 
-      <div class="ab-nav-actions">
-        <a href="/login" class="btn-ghost">Sign In</a>
-        <a href="/agents/new" class="btn-primary">Get Started</a>
-      </div>
+      <%!-- CHAT DRAWER (Persistent) --%>
+      <aside id="chat-drawer" class="w-80 flex-none border-l border-base-content/5 flex flex-col bg-base-200 transition-all duration-300 translate-x-full fixed right-0 inset-y-0 z-20 shadow-2xl [&.open]:translate-x-0">
+        <header class="p-4 border-b border-base-content/5 flex items-center justify-between">
+          <h3 class="font-bold flex items-center gap-2">
+            <.icon name="hero-chat-bubble-left-right" class="size-5 opacity-50" />
+            <span>Swarm Chat</span>
+          </h3>
+          <button class="btn btn-ghost btn-sm btn-circle" onclick="document.getElementById('chat-drawer').classList.remove('open')">
+            <.icon name="hero-x-mark" class="size-5" />
+          </button>
+        </header>
+        
+        <div class="flex-1 p-4 overflow-y-auto space-y-4">
+          <div class="text-center py-8">
+            <p class="text-xs opacity-50 italic">No active conversations.</p>
+            <button class="btn btn-primary btn-sm mt-4">New Message</button>
+          </div>
+        </div>
 
-      <button class="ab-nav-toggle" aria-label="Menu" onclick="document.querySelector('.ab-nav-links').classList.toggle('mobile-open')">
-        ☰
-      </button>
-    </nav>
-
-    <%!-- PAGE CONTENT --%>
-    <main>
-      {render_slot(@inner_block)}
-    </main>
-
-    <%!-- SHARED FOOTER --%>
-    <footer class="ab-footer">
-      <span class="footer-copy">© 2026 agentandbot.com</span>
-      <div class="footer-links">
-        <a href="/.well-known/agent.json" class="footer-link">agent.json</a>
-        <a href="https://github.com/agentandbot-design/dil" class="footer-link" target="_blank">GitHub</a>
-      </div>
-    </footer>
+        <footer class="p-4 border-t border-base-content/5">
+          <div class="join w-full">
+            <input class="input input-sm input-bordered join-item flex-1" placeholder="Type a message..." />
+            <button class="btn btn-sm btn-primary join-item px-4">Send</button>
+          </div>
+        </footer>
+      </aside>
+    </div>
 
     <.flash_group flash={@flash} />
     """

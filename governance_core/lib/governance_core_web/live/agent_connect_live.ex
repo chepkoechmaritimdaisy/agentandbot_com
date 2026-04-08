@@ -62,7 +62,7 @@ defmodule GovernanceCoreWeb.AgentConnectLive do
         </div>
 
         <%!-- LIVE LOG (with PubSub monitoring) --%>
-        <div class="log-box animate-fade-in-up" id="logs" phx-update="append">
+        <div class="log-box animate-fade-in-up" id="logs">
           <%= for {line, i} <- Enum.with_index(@log_lines) do %>
             <div class={"log-line #{line.type}"} id={"log-#{i}"}><%= line.text %></div>
           <% end %>

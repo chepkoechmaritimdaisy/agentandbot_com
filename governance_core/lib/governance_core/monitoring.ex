@@ -9,7 +9,7 @@ defmodule GovernanceCore.Monitoring do
     CommentMonitor.get_recent_comments()
   end
 
-  def add_comment(attrs \ %{}) do
+  def add_comment(attrs \\ %{}) do
     # Simple map for now, could be a changeset later
     comment = %{
       id: System.unique_integer([:positive]),

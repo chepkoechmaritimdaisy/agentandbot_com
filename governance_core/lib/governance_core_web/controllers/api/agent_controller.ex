@@ -4,10 +4,11 @@ defmodule GovernanceCoreWeb.Api.AgentController do
   alias GovernanceCore.Agents
 
   def index(conn, _params) do
+    agents = Agents.list_agents()
     json(conn, %{
-      data: Agents.to_json(Agents.list_agents()),
+      data: agents,
       meta: %{
-        total: length(Agents.list_agents()),
+        total: length(agents),
         protocol: "ABL.ONE/1.0",
         api_version: "v1"
       }
@@ -22,26 +23,22 @@ defmodule GovernanceCoreWeb.Api.AgentController do
         |> json(%{error: "Agent not found", id: id})
 
       agent ->
-        json(conn, %{data: Agents.to_json(agent)})
+        json(conn, %{data: agent})
     end
   end
 
   def create(conn, %{"name" => name, "category" => category} = params) do
-    new_agent = %{
-      id: Ecto.UUID.generate(),
-      name: name,
-      description: Map.get(params, "description", ""),
-      category: category,
-      status: "pending",
-      protocol: "ABL.ONE/1.0",
-      uptime: "0%",
-      tasks_done: 0,
-      price_monthly: 0
-    }
+    case Agents.create_agent(params) do
+      {:ok, agent} ->
+        conn
+        |> put_status(:created)
+        |> json(%{data: agent, message: "Identity Passport created & Agent queued for deployment"})
 
-    conn
-    |> put_status(:created)
-    |> json(%{data: new_agent, message: "Agent queued for deployment"})
+      {:error, _changeset} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "Validation failed", details: "Check required fields"})
+    end
   end
 
   def create(conn, _params) do

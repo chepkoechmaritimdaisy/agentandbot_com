@@ -168,6 +168,9 @@ Her agent framework için bir adapter:
 * Agent-Zero Adapter
 * PicoClaw Adapter
 * ZeroClaw Adapter
+* goole adk ile oluşturulmuş agentlar 
+* veya herhangi bir agent 
+* 
 
 Platform, framework'ü değil **adapter interface'i** görür. Her ajan, adapter üzerinden Elixir backend'in sunduğu API ile konuşur.
 

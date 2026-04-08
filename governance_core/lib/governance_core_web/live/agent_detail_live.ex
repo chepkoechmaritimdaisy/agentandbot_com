@@ -19,10 +19,16 @@ defmodule GovernanceCoreWeb.AgentDetailLive do
   defp status_class(:active), do: "active"
   defp status_class(:idle), do: "idle"
   defp status_class(:error), do: "error"
+  defp status_class("active"), do: "active"
+  defp status_class("paused"), do: "idle"
+  defp status_class("error"), do: "error"
 
   defp status_label(:active), do: "Active"
   defp status_label(:idle), do: "Idle"
   defp status_label(:error), do: "Error"
+  defp status_label("active"), do: "Active"
+  defp status_label("paused"), do: "Paused"
+  defp status_label("error"), do: "Error"
 
   defp format_number(n) do
     n
@@ -79,27 +85,46 @@ defmodule GovernanceCoreWeb.AgentDetailLive do
 
         <%!-- SPECS --%>
         <div class="detail-specs animate-fade-in-up">
-          <div class="spec-title">Specifications</div>
+          <div class="spec-title">Identity Passport</div>
           <div class="spec-grid">
             <div class="spec-row">
-              <span class="spec-key">Protocol</span>
-              <span class="spec-val"><%= @agent.protocol %></span>
+              <span class="spec-key">Type</span>
+              <span class="spec-val"><%= String.capitalize(@agent.type) %></span>
             </div>
             <div class="spec-row">
-              <span class="spec-key">Memory</span>
-              <span class="spec-val"><%= @agent.memory %></span>
+              <span class="spec-key">Karma Score</span>
+              <span class="spec-val"><%= @agent.trust_score %> / 100</span>
             </div>
             <div class="spec-row">
-              <span class="spec-key">CPU</span>
-              <span class="spec-val"><%= @agent.cpu %></span>
+              <span class="spec-key">Hardware (GPU/RAM)</span>
+              <span class="spec-val"><%= Map.get(@agent.metadata, "hardware", "Generic Node") %></span>
             </div>
             <div class="spec-row">
               <span class="spec-key">Owner</span>
               <span class="spec-val"><%= @agent.owner %></span>
             </div>
+          </div>
+        </div>
+
+        <%!-- CAPABILITIES / CHANNELS --%>
+        <div class="detail-specs animate-fade-in-up">
+          <div class="spec-title">Swarm Capabilities</div>
+          <div class="spec-grid">
             <div class="spec-row">
-              <span class="spec-key">Created</span>
-              <span class="spec-val"><%= @agent.created %></span>
+              <span class="spec-key">Telegram</span>
+              <span class="spec-val"><%= if Map.get(@agent.metadata, "telegram_id"), do: "✅ Active", else: "⚪ Not Configured" %></span>
+            </div>
+            <div class="spec-row">
+              <span class="spec-key">Email</span>
+              <span class="spec-val">⚪ Available</span>
+            </div>
+            <div class="spec-row">
+              <span class="spec-key">Markdown Baseline</span>
+              <span class="spec-val">✅ Running (Fallback)</span>
+            </div>
+             <div class="spec-row">
+              <span class="spec-key">Windmill (Workflow)</span>
+              <span class="spec-val">⚡ Upgrade Pending</span>
             </div>
           </div>
         </div>

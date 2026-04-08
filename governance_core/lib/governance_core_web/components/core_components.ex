@@ -468,6 +468,111 @@ defmodule GovernanceCoreWeb.CoreComponents do
   end
 
   @doc """
+  Renders a persona card for humans and bots.
+  Designed to be "Agent-Friendly" with clear semantic IDs.
+  """
+  attr :persona, :map, required: true
+  attr :id, :string, default: nil
+
+  def persona_card(assigns) do
+    assigns = assign_new(assigns, :id, fn -> "persona-#{assigns.persona.id}" end)
+
+    ~H"""
+    <div
+      id={@id}
+      class="card card-bordered bg-base-200 shadow-sm hover:shadow-md transition-all"
+      data-persona-type={@persona.type}
+      data-access-group={@persona.access_group}
+    >
+      <div class="card-body p-4">
+        <div class="flex items-start justify-between">
+          <div class="flex items-center gap-3">
+            <div class={["avatar placeholder", @persona.type == :bot && "online"]}>
+              <div class="bg-neutral text-neutral-content w-10 rounded-full">
+                <span class="text-xs">{String.at(@persona.name, 0)}</span>
+              </div>
+            </div>
+            <div>
+              <h3 class="font-bold text-sm">{@persona.name}</h3>
+              <p class="text-xs opacity-60">{@persona.role}</p>
+            </div>
+          </div>
+          <.status_badge status={@persona.status} />
+        </div>
+
+        <div class="mt-4 flex flex-wrap gap-1">
+          <span
+            :for={skill <- @persona.skills}
+            class="badge badge-sm badge-outline text-[10px]"
+          >
+            {skill}
+          </span>
+        </div>
+
+        <div class="card-actions justify-end mt-4">
+          <div :if={@persona.access_group == :harezm} class="flex items-center gap-1 text-[10px] text-success">
+            <.icon name="hero-check-badge" class="size-3" />
+            <span>Harezm Internal</span>
+          </div>
+          <div :if={@persona.access_group == :external} class="flex items-center gap-1 text-[10px] text-warning">
+            <.icon name="hero-currency-dollar" class="size-3" />
+            <span>Marketplace (Paid)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  @doc """
+  Renders a high-visibility status badge.
+  """
+  attr :status, :string, required: true
+
+  def status_badge(assigns) do
+    classes = %{
+      "active" => "badge-success",
+      "paused" => "badge-warning",
+      "error" => "badge-error",
+      "offline" => "badge-ghost"
+    }
+
+    assigns = assign(assigns, :class, Map.get(classes, to_string(assigns.status), "badge-info"))
+
+    ~H"""
+    <span class={["badge badge-xs font-semibold uppercase", @class]}>
+      {@status}
+    </span>
+    """
+  end
+
+  @doc """
+  Renders a Payment/Auth Challenge alert (x402 / AP2 style).
+  """
+  attr :challenge, :map, required: true
+  attr :on_confirm, :any, default: nil
+
+  def challenge_alert(assigns) do
+    ~H"""
+    <div id="payment-challenge" class="alert alert-warning shadow-lg mb-6 border-l-4">
+      <.icon name="hero-shield-check" class="size-6 shrink-0" />
+      <div class="flex-1">
+        <h3 class="font-bold text-sm">402 Payment Required (x402 Protocol)</h3>
+        <div class="text-xs">
+          Persona <span class="font-mono">{@challenge.persona_name}</span> is requesting
+          <span class="font-bold">{@challenge.amount} USDC</span> for task:
+          <span class="italic">"{@challenge.task_name}"</span>
+        </div>
+      </div>
+      <div class="flex-none gap-2">
+        <button class="btn btn-sm btn-ghost">Dismiss</button>
+        <button class="btn btn-sm btn-primary" phx-click={@on_confirm}>Authorize (AP2 Mandate)</button>
+      </div>
+    </div>
+    """
+  end
+
+  @doc """
   Translates an error message using gettext.
   """
   def translate_error({msg, opts}) do

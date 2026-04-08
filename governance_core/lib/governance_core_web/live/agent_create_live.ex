@@ -1,5 +1,6 @@
 defmodule GovernanceCoreWeb.AgentCreateLive do
   use GovernanceCoreWeb, :live_view
+  alias GovernanceCore.Agents
 
   @categories ["Research", "Finance", "Communication", "Data", "Enterprise", "Custom"]
   @protocols ["ABL.ONE/1.0"]
@@ -60,11 +61,31 @@ defmodule GovernanceCoreWeb.AgentCreateLive do
 
   @impl true
   def handle_event("launch", _params, socket) do
-    # In future: persist to DB, start container
-    {:noreply,
-     socket
-     |> put_flash(:info, "Agent \"#{socket.assigns.name}\" created successfully!")
-     |> push_navigate(to: "/dashboard")}
+    agent_params = %{
+      name: socket.assigns.name,
+      description: socket.assigns.description,
+      category: socket.assigns.category,
+      protocol: socket.assigns.protocol,
+      owner: "local_user",
+      status: "active",
+      metadata: %{
+        size: socket.assigns.size,
+        hardware: "Local Mock Node"
+      }
+    }
+
+    case Agents.create_agent(agent_params) do
+      {:ok, _agent} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Agent \"#{socket.assigns.name}\" created and launched!")
+         |> push_navigate(to: "/dashboard")}
+
+      {:error, _changeset} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Launch failed. Check required fields.")}
+    end
   end
 
   defp selected_size(sizes, size_id) do

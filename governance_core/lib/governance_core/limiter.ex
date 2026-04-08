@@ -12,7 +12,6 @@ defmodule GovernanceCore.Limiter do
 
   # Default Quotas
   @cpu_limit_per_minute 100 # requests/ops
-  @ram_limit_bytes 10_000_000 # 10MB payload size buffer
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)

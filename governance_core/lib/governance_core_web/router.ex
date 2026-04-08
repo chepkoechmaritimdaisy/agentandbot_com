@@ -17,13 +17,15 @@ defmodule GovernanceCoreWeb.Router do
   scope "/", GovernanceCoreWeb do
     pipe_through(:browser)
 
-    get("/", PageController, :home)
-
-    live("/marketplace", MarketplaceLive)
+    live("/", SwarmHubLive)
+    live("/personas", PersonaDirectoryLive)
+    live("/scenarios", ScenarioBoardLive)
+    live("/governance", GovernanceLive)
+    
+    # Legacy / Utility
+    live("/agent/connect", AgentConnectLive)
     live("/agents/new", AgentCreateLive)
     live("/agents/:id", AgentDetailLive)
-    live("/dashboard", DashboardLive)
-    live("/agent/connect", AgentConnectLive)
   end
 
   scope "/.well-known", GovernanceCoreWeb do
