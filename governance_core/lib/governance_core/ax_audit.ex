@@ -13,7 +13,7 @@ defmodule GovernanceCore.AXAudit do
   @interval 24 * 60 * 60 * 1000
 
   def start_link(_opts) do
-    GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
+    GenServer.start_link(__MODULE__, %{recent_prs: []}, name: __MODULE__)
   end
 
   def init(state) do
@@ -22,20 +22,20 @@ defmodule GovernanceCore.AXAudit do
   end
 
   def handle_info(:audit, state) do
-    perform_audit()
+    new_state = perform_audit(state)
     schedule_audit()
-    {:noreply, state}
+    {:noreply, new_state}
   end
 
   defp schedule_audit do
     Process.send_after(self(), :audit, @interval)
   end
 
-  def perform_audit do
+  def perform_audit(state) do
     Logger.info("Starting Continuous AX Audit...")
 
     base_url = GovernanceCoreWeb.Endpoint.url()
-    endpoints = ["/", "/agents", "/dashboard/traffic"]
+    endpoints = ["/api/agents", "/.well-known/agent.json"]
 
     results = Enum.map(endpoints, fn path ->
       url = base_url <> path
@@ -46,33 +46,62 @@ defmodule GovernanceCore.AXAudit do
 
     if Enum.empty?(failures) do
       Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
+      state
     else
       Logger.error("AX Audit Failed: #{inspect(failures)}")
+      handle_failures(failures, state)
     end
   end
 
   defp check_endpoint(url) do
-    case Req.get(url) do
+    # Use decode_body: false to safely handle invalid JSON without crashing
+    case Req.get(url, decode_body: false) do
       {:ok, %{status: 200, body: body}} ->
         if is_agent_friendly?(body) do
           {:ok, url}
         else
-          {:error, "Endpoint #{url} is not agent-friendly (missing semantic tags or too complex)"}
+          {:error, :invalid_json_schema}
         end
-      {:ok, %{status: status}} ->
-        {:error, "Endpoint #{url} returned status #{status}"}
-      {:error, reason} ->
-        {:error, "Failed to fetch #{url}: #{inspect(reason)}"}
+      {:ok, %{status: _status}} ->
+        {:error, :unexpected_status}
+      {:error, _reason} ->
+        # Use static error reason to deduplicate correctly
+        {:error, :timeout}
     end
   end
 
-  defp is_agent_friendly?(html) do
-    # Simple heuristic checks for semantic structure
-    has_main = String.contains?(html, "<main")
-    has_h1 = String.contains?(html, "<h1")
-    # Check for excessive script usage might be tricky with simple string matching,
-    # but we can check if the ratio of script tags to content is high or just ensure main content exists.
+  defp is_agent_friendly?(body) do
+    case Jason.decode(body) do
+      {:ok, _json} -> true
+      {:error, _} -> false
+    end
+  end
 
-    has_main && has_h1
+  defp handle_failures(failures, state) do
+    new_prs = Enum.reduce(failures, state.recent_prs, fn {:error, reason}, acc ->
+      if reason in acc do
+        acc
+      else
+        create_pr_for_failure(reason)
+        [reason | acc] |> Enum.take(10)
+      end
+    end)
+    %{state | recent_prs: new_prs}
+  end
+
+  defp create_pr_for_failure(reason) do
+    branch_name = "fix-ax-audit-#{System.system_time(:second)}"
+
+    # Create an empty commit and push to a new remote branch without checkout/commit
+    cmd = """
+    tree=$(git write-tree)
+    commit=$(echo "Automated fix for #{reason}" | git commit-tree $tree -p HEAD)
+    git update-ref refs/heads/#{branch_name} $commit
+    git push origin #{branch_name}
+    gh pr create --title 'Fix AX Audit Failure: #{reason}' --body 'AX Audit detected an issue: #{reason}' --head #{branch_name} --base main
+    """
+
+    Logger.info("Creating PR for AX Audit failure: #{reason}")
+    System.cmd("sh", ["-c", cmd])
   end
 end
