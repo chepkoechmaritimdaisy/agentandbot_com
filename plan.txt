@@ -1,0 +1,25 @@
+1. Add `stream_data` to `mix.exs` dependencies (not restricted to `:dev`, `:test` since Fuzzer will be a GenServer in prod).
+2. Create `GovernanceCore.Protocols.Fuzzer` GenServer.
+   - Generates random UMP frames.
+   - Calls `GovernanceCore.Protocols.UMP.Parser.parse_frame/1` wrapped in `try/rescue/catch`.
+   - Logs if it crashes or returns inconsistent pattern matching.
+3. Add Fuzzer to supervision tree in `lib/governance_core/application.ex`.
+4. Update `GovernanceCore.AXAudit` to query `/api/agents` and `/.well-known/agent.json` (MCP endpoints).
+   - Check response time.
+   - Check JSON schema validity (using Req with `decode_body: false`).
+   - Create PR using `gh pr create` (simulate with `gh` CLI commands like `git write-tree`, `git commit-tree`, `git update-ref`, `git push` then `gh pr create`? Or maybe just mock/create PR logically using git). Wait, memory says: "Automated Pull Request creation uses the `gh` CLI (`gh pr create`). To avoid direct local git mutations (like `git commit` or `git checkout`) that could disrupt the live state, prepare and push the branch using `git write-tree`, `git commit-tree`, `git update-ref`, and `git push`."
+   - Deduplicate errors with static reasons.
+5. Create `GovernanceCore.Monitoring.SkillTracker` GenServer.
+   - Monitors new functions loaded using `Code.all_loaded()` starting with `Elixir.GovernanceCore`.
+   - Extracts docs via `Code.fetch_docs/1`.
+   - Generates YAML format entry in `SKILL.md` (1024 char limit).
+   - Add to supervision tree.
+6. Create `GovernanceCore.Monitoring.ResourceWatchdog` GenServer.
+   - Runs `docker stats` using `System.cmd` to monitor CPU/RAM.
+   - Logs warnings for limits/OOM risks.
+   - Handle ErlangError for missing docker and non-zero exit codes.
+   - Add to supervision tree.
+7. Create `GovernanceCore.Monitoring.SecurityAudit` GenServer.
+   - Nightly process of `log/agent_traffic.log` tracking byte pos to avoid reprocessing.
+   - Analyses for "Decompiler Standard"
+   - Add to supervision tree.
