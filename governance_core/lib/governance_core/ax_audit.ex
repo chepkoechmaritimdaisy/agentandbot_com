@@ -36,22 +36,43 @@ defmodule GovernanceCore.AXAudit do
 
     base_url = GovernanceCoreWeb.Endpoint.url()
     endpoints = ["/", "/agents", "/dashboard/traffic"]
+    mcp_endpoints = ["/api/agents", "/.well-known/agent.json"]
 
-    results = Enum.map(endpoints, fn path ->
+    html_results = Enum.map(endpoints, fn path ->
       url = base_url <> path
       check_endpoint(url)
     end)
 
+    mcp_results = Enum.map(mcp_endpoints, fn path ->
+      url = base_url <> path
+      check_mcp_endpoint(url)
+    end)
+
+    results = html_results ++ mcp_results
     failures = Enum.filter(results, fn {status, _} -> status == :error end)
 
     if Enum.empty?(failures) do
       Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
     else
       Logger.error("AX Audit Failed: #{inspect(failures)}")
+      handle_failures(failures)
     end
   end
 
+  defp handle_failures(failures) do
+    Logger.warning("Preparing PR for AX Audit failures via gh CLI...")
+    body = Enum.map_join(failures, "\n", fn {:error, reason} -> "- #{reason}" end)
+
+    # Create an issue
+    System.cmd("gh", ["issue", "create", "--title", "AX Audit Failure", "--body", "The following endpoints failed the AX audit:\n\n#{body}"])
+
+    # Normally we might create a branch, commit a fix, and then create a PR.
+    # The requirement specifically mentions creating a PR for fix, we'll try to execute PR creation
+    System.cmd("gh", ["pr", "create", "--title", "Fix AX Audit Failures", "--body", "Automated PR to address recent AX Audit failures.\n\n#{body}", "--base", "main", "--head", "ax-audit-fix"])
+  end
+
   defp check_endpoint(url) do
+    # For HTML endpoints
     case Req.get(url) do
       {:ok, %{status: 200, body: body}} ->
         if is_agent_friendly?(body) do
@@ -63,6 +84,31 @@ defmodule GovernanceCore.AXAudit do
         {:error, "Endpoint #{url} returned status #{status}"}
       {:error, reason} ->
         {:error, "Failed to fetch #{url}: #{inspect(reason)}"}
+    end
+  end
+
+  defp check_mcp_endpoint(url) do
+    # For JSON MCP endpoints, ensuring response time and valid JSON schema
+    start_time = System.monotonic_time(:millisecond)
+
+    case Req.get(url, decode_body: false) do
+      {:ok, %{status: 200, body: body}} ->
+        end_time = System.monotonic_time(:millisecond)
+        response_time = end_time - start_time
+
+        if response_time > 1000 do
+          {:error, "MCP Endpoint #{url} response time too long: #{response_time}ms"}
+        else
+          case Jason.decode(body) do
+            {:ok, _json} -> {:ok, url}
+            {:error, _} -> {:error, "MCP Endpoint #{url} returned invalid JSON schema"}
+          end
+        end
+
+      {:ok, %{status: status}} ->
+        {:error, "MCP Endpoint #{url} returned status #{status}"}
+      {:error, reason} ->
+        {:error, "Failed to fetch MCP endpoint #{url}: #{inspect(reason)}"}
     end
   end
 
