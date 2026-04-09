@@ -2,9 +2,8 @@ defmodule GovernanceCore.AXAudit do
   @moduledoc """
   Runs a nightly audit of the application to ensure it remains "Agent-Friendly".
   Checks for:
-  - Semantic HTML structure (presence of <main>, <h1>, <article>)
-  - Accessibility of SKILL.md files
-  - Low complexity (avoiding heavy JS blocking)
+  - MCP endpoints for valid JSON schema
+  - Response time
   """
   use GenServer
   require Logger
@@ -13,7 +12,7 @@ defmodule GovernanceCore.AXAudit do
   @interval 24 * 60 * 60 * 1000
 
   def start_link(_opts) do
-    GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
+    GenServer.start_link(__MODULE__, %{recent_prs: []}, name: __MODULE__)
   end
 
   def init(state) do
@@ -22,20 +21,20 @@ defmodule GovernanceCore.AXAudit do
   end
 
   def handle_info(:audit, state) do
-    perform_audit()
+    new_state = perform_audit(state)
     schedule_audit()
-    {:noreply, state}
+    {:noreply, new_state}
   end
 
   defp schedule_audit do
     Process.send_after(self(), :audit, @interval)
   end
 
-  def perform_audit do
+  def perform_audit(state) do
     Logger.info("Starting Continuous AX Audit...")
 
     base_url = GovernanceCoreWeb.Endpoint.url()
-    endpoints = ["/", "/agents", "/dashboard/traffic"]
+    endpoints = ["/api/agents", "/.well-known/agent.json"]
 
     results = Enum.map(endpoints, fn path ->
       url = base_url <> path
@@ -45,34 +44,63 @@ defmodule GovernanceCore.AXAudit do
     failures = Enum.filter(results, fn {status, _} -> status == :error end)
 
     if Enum.empty?(failures) do
-      Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
+      Logger.info("AX Audit Passed: All MCP endpoints are Agent-Friendly.")
+      state
     else
       Logger.error("AX Audit Failed: #{inspect(failures)}")
+      handle_failures(failures, state)
     end
   end
 
   defp check_endpoint(url) do
-    case Req.get(url) do
+    start_time = System.monotonic_time()
+
+    case Req.get(url, decode_body: false) do
       {:ok, %{status: 200, body: body}} ->
-        if is_agent_friendly?(body) do
-          {:ok, url}
+        end_time = System.monotonic_time()
+        time_diff = System.convert_time_unit(end_time - start_time, :native, :millisecond)
+
+        if time_diff > 1000 do
+           {:error, "Endpoint #{url} response time too long"}
         else
-          {:error, "Endpoint #{url} is not agent-friendly (missing semantic tags or too complex)"}
+           case Jason.decode(body) do
+             {:ok, _} -> {:ok, url}
+             {:error, _} -> {:error, "Endpoint #{url} returned invalid JSON schema"}
+           end
         end
+
       {:ok, %{status: status}} ->
         {:error, "Endpoint #{url} returned status #{status}"}
-      {:error, reason} ->
-        {:error, "Failed to fetch #{url}: #{inspect(reason)}"}
+
+      {:error, _reason} ->
+        {:error, "Failed to fetch #{url}"}
     end
   end
 
-  defp is_agent_friendly?(html) do
-    # Simple heuristic checks for semantic structure
-    has_main = String.contains?(html, "<main")
-    has_h1 = String.contains?(html, "<h1")
-    # Check for excessive script usage might be tricky with simple string matching,
-    # but we can check if the ratio of script tags to content is high or just ensure main content exists.
+  defp handle_failures(failures, state) do
+    Enum.reduce(failures, state, fn {:error, reason}, acc ->
+      if Enum.member?(acc.recent_prs, reason) do
+        Logger.info("AX Audit: PR for '#{reason}' already created recently. Skipping.")
+        acc
+      else
+        branch_name = "ax-audit-fix-#{:os.system_time(:second)}"
+        Logger.warning("AX Audit: Attempting to create PR for '#{reason}' on branch #{branch_name}...")
 
-    has_main && has_h1
+        try do
+          System.cmd("gh", [
+            "pr", "create",
+            "--title", "fix: AX Audit automated fix for MCP endpoint",
+            "--body", "Automated fix for: #{reason}",
+            "--head", branch_name,
+            "--base", "main"
+          ])
+        rescue
+          e in ErlangError ->
+            Logger.warning("AX Audit: `gh` CLI not found. Could not create PR. Exception: #{inspect(e)}")
+        end
+
+        %{acc | recent_prs: [reason | acc.recent_prs]}
+      end
+    end)
   end
 end
