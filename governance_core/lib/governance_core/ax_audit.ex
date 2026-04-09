@@ -2,15 +2,15 @@ defmodule GovernanceCore.AXAudit do
   @moduledoc """
   Runs a nightly audit of the application to ensure it remains "Agent-Friendly".
   Checks for:
-  - Semantic HTML structure (presence of <main>, <h1>, <article>)
-  - Accessibility of SKILL.md files
-  - Low complexity (avoiding heavy JS blocking)
+  - MCP endpoints response times
+  - Valid JSON schema on endpoints
   """
   use GenServer
   require Logger
 
   # 24 hours in milliseconds
   @interval 24 * 60 * 60 * 1000
+  @timeout 500
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -35,7 +35,7 @@ defmodule GovernanceCore.AXAudit do
     Logger.info("Starting Continuous AX Audit...")
 
     base_url = GovernanceCoreWeb.Endpoint.url()
-    endpoints = ["/", "/agents", "/dashboard/traffic"]
+    endpoints = ["/api/agents", "/.well-known/agent.json"]
 
     results = Enum.map(endpoints, fn path ->
       url = base_url <> path
@@ -45,34 +45,72 @@ defmodule GovernanceCore.AXAudit do
     failures = Enum.filter(results, fn {status, _} -> status == :error end)
 
     if Enum.empty?(failures) do
-      Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
+      Logger.info("AX Audit Passed: All MCP endpoints are Agent-Friendly.")
     else
       Logger.error("AX Audit Failed: #{inspect(failures)}")
+      handle_failures(failures)
     end
   end
 
   defp check_endpoint(url) do
-    case Req.get(url) do
+    start_time = System.monotonic_time()
+
+    case Req.get(url, decode_body: false) do
       {:ok, %{status: 200, body: body}} ->
-        if is_agent_friendly?(body) do
-          {:ok, url}
+        end_time = System.monotonic_time()
+        elapsed_ms = System.convert_time_unit(end_time - start_time, :native, :millisecond)
+
+        if elapsed_ms > @timeout do
+          {:error, :timeout}
         else
-          {:error, "Endpoint #{url} is not agent-friendly (missing semantic tags or too complex)"}
+          case Jason.decode(body) do
+            {:ok, _json} -> {:ok, url}
+            {:error, _} -> {:error, :invalid_json}
+          end
         end
+
       {:ok, %{status: status}} ->
-        {:error, "Endpoint #{url} returned status #{status}"}
-      {:error, reason} ->
-        {:error, "Failed to fetch #{url}: #{inspect(reason)}"}
+        {:error, :invalid_status}
+
+      {:error, _reason} ->
+        {:error, :network_error}
     end
   end
 
-  defp is_agent_friendly?(html) do
-    # Simple heuristic checks for semantic structure
-    has_main = String.contains?(html, "<main")
-    has_h1 = String.contains?(html, "<h1")
-    # Check for excessive script usage might be tricky with simple string matching,
-    # but we can check if the ratio of script tags to content is high or just ensure main content exists.
+  defp handle_failures(failures) do
+    deduped_failures = failures |> Enum.uniq_by(fn {_status, reason} -> reason end)
 
-    has_main && has_h1
+    Enum.each(deduped_failures, fn {:error, reason} ->
+      create_pr_for_failure(reason)
+    end)
+  end
+
+  defp create_pr_for_failure(reason) do
+    Logger.info("Creating PR for AX Audit failure: #{inspect(reason)}")
+
+    branch_name = "ax-audit-fix-#{System.system_time(:second)}"
+    title = "🤖 AX Audit Fix: #{reason}"
+    body = "Automated PR created by AX Audit due to #{reason} failure on MCP endpoints."
+
+    try do
+      # Create tree
+      {tree_hash, 0} = System.cmd("git", ["write-tree"])
+      tree_hash = String.trim(tree_hash)
+
+      # Create commit
+      {commit_hash, 0} = System.cmd("git", ["commit-tree", tree_hash, "-m", title])
+      commit_hash = String.trim(commit_hash)
+
+      # Create branch
+      {_, 0} = System.cmd("git", ["update-ref", "refs/heads/" <> branch_name, commit_hash])
+
+      # Push branch
+      {_, 0} = System.cmd("git", ["push", "-u", "origin", branch_name])
+
+      # Create PR
+      {_, 0} = System.cmd("gh", ["pr", "create", "--title", title, "--body", body, "--head", branch_name])
+    rescue
+      e -> Logger.error("Failed to create PR: #{inspect(e)}")
+    end
   end
 end
