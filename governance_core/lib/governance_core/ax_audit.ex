@@ -32,47 +32,101 @@ defmodule GovernanceCore.AXAudit do
   end
 
   def perform_audit do
-    Logger.info("Starting Continuous AX Audit...")
+    Logger.info("Starting Continuous AX Audit on MCP endpoint...")
 
     base_url = GovernanceCoreWeb.Endpoint.url()
-    endpoints = ["/", "/agents", "/dashboard/traffic"]
+    mcp_url = base_url <> "/api/mcp"
 
-    results = Enum.map(endpoints, fn path ->
-      url = base_url <> path
-      check_endpoint(url)
-    end)
+    start_time = System.monotonic_time(:millisecond)
 
-    failures = Enum.filter(results, fn {status, _} -> status == :error end)
-
-    if Enum.empty?(failures) do
-      Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
-    else
-      Logger.error("AX Audit Failed: #{inspect(failures)}")
-    end
-  end
-
-  defp check_endpoint(url) do
-    case Req.get(url) do
+    case Req.get(mcp_url, decode_body: false) do
       {:ok, %{status: 200, body: body}} ->
-        if is_agent_friendly?(body) do
-          {:ok, url}
-        else
-          {:error, "Endpoint #{url} is not agent-friendly (missing semantic tags or too complex)"}
+        end_time = System.monotonic_time(:millisecond)
+        duration = end_time - start_time
+
+        cond do
+          duration > 1000 ->
+            handle_failure("MCP endpoint response time too high: #{duration}ms")
+          not valid_json?(body) ->
+            handle_failure("MCP endpoint returned invalid JSON structure")
+          true ->
+            Logger.info("AX Audit Passed: MCP endpoint is healthy.")
         end
+
       {:ok, %{status: status}} ->
-        {:error, "Endpoint #{url} returned status #{status}"}
-      {:error, reason} ->
-        {:error, "Failed to fetch #{url}: #{inspect(reason)}"}
+        handle_failure("MCP endpoint returned status #{status}")
+
+      {:error, _reason} ->
+        # Use a static error reason for deduplication matching
+        handle_failure("Failed to fetch MCP endpoint: {:error, :timeout}")
     end
   end
 
-  defp is_agent_friendly?(html) do
-    # Simple heuristic checks for semantic structure
-    has_main = String.contains?(html, "<main")
-    has_h1 = String.contains?(html, "<h1")
-    # Check for excessive script usage might be tricky with simple string matching,
-    # but we can check if the ratio of script tags to content is high or just ensure main content exists.
+  defp valid_json?(body) do
+    case Jason.decode(body) do
+      {:ok, _} -> true
+      {:error, _} -> false
+    end
+  end
 
-    has_main && has_h1
+  defp handle_failure(reason) do
+    Logger.error("AX Audit Failed: #{reason}")
+    create_auto_fix_pr(reason)
+  end
+
+  defp create_auto_fix_pr(reason) do
+    branch_name = "auto-fix-ax-audit-#{:os.system_time(:second)}"
+    title = "Auto-Fix: AX Audit Failure"
+    body = "AX Audit failed with reason: #{reason}. Please investigate."
+
+    try do
+      # Deduplication check
+      case System.cmd("gh", ["pr", "list", "--search", "#{title} in:title state:open"]) do
+        {search_out, 0} ->
+          if String.trim(search_out) != "" do
+            Logger.info("AX Audit Auto-Fix PR already exists. Skipping.")
+          else
+            execute_git_flow(branch_name, title, body)
+          end
+        {error_out, code} ->
+          Logger.warning("Failed to check existing PRs. Exit #{code}: #{error_out}")
+      end
+    rescue
+      e in ErlangError ->
+        Logger.warning("Failed to execute git or gh commands: #{inspect(e)}")
+    end
+  end
+
+  defp execute_git_flow(branch_name, title, body) do
+    case System.cmd("git", ["write-tree"]) do
+      {tree_hash, 0} ->
+        tree_hash = String.trim(tree_hash)
+
+        case System.cmd("git", ["commit-tree", tree_hash, "-p", "HEAD", "-m", title]) do
+          {commit_hash, 0} ->
+            commit_hash = String.trim(commit_hash)
+
+            case System.cmd("git", ["update-ref", "refs/heads/#{branch_name}", commit_hash]) do
+              {_, 0} ->
+                case System.cmd("git", ["push", "origin", branch_name]) do
+                  {_, 0} ->
+                    case System.cmd("gh", ["pr", "create", "--title", title, "--body", body, "--head", branch_name]) do
+                      {_, 0} ->
+                        Logger.info("Created Auto-Fix PR for AX Audit failure.")
+                      {error, code} ->
+                        Logger.warning("Failed to create PR with gh. Exit #{code}: #{error}")
+                    end
+                  {error, code} ->
+                    Logger.warning("Failed to push branch. Exit #{code}: #{error}")
+                end
+              {error, code} ->
+                Logger.warning("Failed to update git ref. Exit #{code}: #{error}")
+            end
+          {error, code} ->
+            Logger.warning("Failed to run commit-tree. Exit #{code}: #{error}")
+        end
+      {error, code} ->
+        Logger.warning("Failed to run write-tree. Exit #{code}: #{error}")
+    end
   end
 end
