@@ -10,17 +10,21 @@ defmodule GovernanceCore.AXAudit do
   require Logger
 
   # 24 hours in milliseconds
-  @interval 24 * 60 * 60 * 1000
+  # Adjust interval as appropriate; for continuous monitoring maybe lower than 24h
+  # Using 1 hour here for example, though it can be tweaked.
+  @interval 60 * 60 * 1000
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   end
 
+  @impl true
   def init(state) do
     schedule_audit()
     {:ok, state}
   end
 
+  @impl true
   def handle_info(:audit, state) do
     perform_audit()
     schedule_audit()
@@ -32,47 +36,76 @@ defmodule GovernanceCore.AXAudit do
   end
 
   def perform_audit do
-    Logger.info("Starting Continuous AX Audit...")
+    Logger.info("Starting Continuous AX Audit on MCP endpoint...")
 
     base_url = GovernanceCoreWeb.Endpoint.url()
-    endpoints = ["/", "/agents", "/dashboard/traffic"]
+    # Now targets /api/mcp
+    url = base_url <> "/api/mcp"
 
-    results = Enum.map(endpoints, fn path ->
-      url = base_url <> path
-      check_endpoint(url)
-    end)
+    start_time = System.monotonic_time(:millisecond)
 
-    failures = Enum.filter(results, fn {status, _} -> status == :error end)
+    case Req.get(url, decode_body: false) do
+      {:ok, %{status: status, body: body}} when status in 200..299 ->
+        end_time = System.monotonic_time(:millisecond)
+        duration = end_time - start_time
 
-    if Enum.empty?(failures) do
-      Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
-    else
-      Logger.error("AX Audit Failed: #{inspect(failures)}")
-    end
-  end
-
-  defp check_endpoint(url) do
-    case Req.get(url) do
-      {:ok, %{status: 200, body: body}} ->
-        if is_agent_friendly?(body) do
-          {:ok, url}
+        if duration > 1000 do
+          handle_failure({:error, :timeout}, "Endpoint #{url} responded too slowly (#{duration}ms)")
         else
-          {:error, "Endpoint #{url} is not agent-friendly (missing semantic tags or too complex)"}
+          # Attempt to validate JSON schema manually
+          case Jason.decode(body) do
+            {:ok, _json} ->
+              Logger.info("AX Audit Passed: /api/mcp is healthy.")
+            {:error, _} ->
+              handle_failure({:error, :invalid_schema}, "Endpoint #{url} returned malformed JSON")
+          end
         end
+
       {:ok, %{status: status}} ->
-        {:error, "Endpoint #{url} returned status #{status}"}
+        handle_failure({:error, :bad_status}, "Endpoint #{url} returned status #{status}")
+
       {:error, reason} ->
-        {:error, "Failed to fetch #{url}: #{inspect(reason)}"}
+        handle_failure({:error, :request_failed}, "Failed to fetch #{url}: #{inspect(reason)}")
     end
   end
 
-  defp is_agent_friendly?(html) do
-    # Simple heuristic checks for semantic structure
-    has_main = String.contains?(html, "<main")
-    has_h1 = String.contains?(html, "<h1")
-    # Check for excessive script usage might be tricky with simple string matching,
-    # but we can check if the ratio of script tags to content is high or just ensure main content exists.
+  defp handle_failure(error_type, message) do
+    Logger.error("AX Audit Failed: #{message}")
+    create_pull_request(error_type, message)
+  end
 
-    has_main && has_h1
+  defp create_pull_request(error_type, message) do
+    # Deduplicate errors based on the static error_type atom to avoid PR spam
+    search_query = "in:title \"Fix AX Audit Failure: #{inspect(error_type)}\""
+
+    try do
+      case System.cmd("gh", ["pr", "list", "--search", search_query, "--json", "id"]) do
+        {output, 0} ->
+          if String.trim(output) == "[]" do
+            # No existing PR found, create a new one
+            branch_name = "auto-fix-ax-audit-#{:os.system_time(:second)}"
+
+            # Using low-level git commands to avoid checkout
+            with {tree_hash, 0} <- System.cmd("git", ["write-tree"]),
+                 tree_hash = String.trim(tree_hash),
+                 {commit_hash, 0} <- System.cmd("git", ["commit-tree", tree_hash, "-p", "HEAD", "-m", "Fix AX Audit Failure: #{inspect(error_type)}\n\n#{message}"]),
+                 commit_hash = String.trim(commit_hash),
+                 {_, 0} <- System.cmd("git", ["update-ref", "refs/heads/#{branch_name}", commit_hash]),
+                 {_, 0} <- System.cmd("git", ["push", "-u", "origin", branch_name]),
+                 {_, 0} <- System.cmd("gh", ["pr", "create", "--base", "main", "--head", branch_name, "--title", "Fix AX Audit Failure: #{inspect(error_type)}", "--body", "Automated PR created by AX Audit.\n\nIssue: #{message}"]) do
+              Logger.info("Created automated PR for #{inspect(error_type)}")
+            else
+              error -> Logger.error("Failed to create automated PR: #{inspect(error)}")
+            end
+          else
+            Logger.info("PR already exists for #{inspect(error_type)}, skipping creation.")
+          end
+        {error_output, exit_code} ->
+          Logger.error("Failed to check for existing PRs via gh CLI. Exit code: #{exit_code}. Output: #{error_output}")
+      end
+    rescue
+      e in ErlangError ->
+        Logger.error("gh or git CLI not available or crashed: #{inspect(e)}")
+    end
   end
 end
