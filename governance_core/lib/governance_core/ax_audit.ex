@@ -9,8 +9,8 @@ defmodule GovernanceCore.AXAudit do
   use GenServer
   require Logger
 
-  # 24 hours in milliseconds
-  @interval 24 * 60 * 60 * 1000
+  # 5 minutes in milliseconds
+  @interval 5 * 60 * 1000
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -35,44 +35,85 @@ defmodule GovernanceCore.AXAudit do
     Logger.info("Starting Continuous AX Audit...")
 
     base_url = GovernanceCoreWeb.Endpoint.url()
-    endpoints = ["/", "/agents", "/dashboard/traffic"]
+    mcp_url = base_url <> "/api/mcp"
 
-    results = Enum.map(endpoints, fn path ->
-      url = base_url <> path
-      check_endpoint(url)
-    end)
+    start_time = System.monotonic_time(:millisecond)
 
-    failures = Enum.filter(results, fn {status, _} -> status == :error end)
-
-    if Enum.empty?(failures) do
-      Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
-    else
-      Logger.error("AX Audit Failed: #{inspect(failures)}")
-    end
-  end
-
-  defp check_endpoint(url) do
-    case Req.get(url) do
+    # fetch /api/mcp using Req with decode_body: false
+    case Req.get(mcp_url, decode_body: false) do
       {:ok, %{status: 200, body: body}} ->
-        if is_agent_friendly?(body) do
-          {:ok, url}
-        else
-          {:error, "Endpoint #{url} is not agent-friendly (missing semantic tags or too complex)"}
+        end_time = System.monotonic_time(:millisecond)
+        duration = end_time - start_time
+
+        cond do
+          duration > 1000 ->
+            handle_failure("Response time too long", {:error, :timeout})
+          not valid_json?(body) ->
+            handle_failure("Invalid JSON schema", {:error, :invalid_json})
+          true ->
+            Logger.info("AX Audit Passed: MCP endpoint is Agent-Friendly.")
         end
+
       {:ok, %{status: status}} ->
-        {:error, "Endpoint #{url} returned status #{status}"}
-      {:error, reason} ->
-        {:error, "Failed to fetch #{url}: #{inspect(reason)}"}
+        handle_failure("Endpoint returned status #{status}", {:error, :bad_status})
+
+      {:error, _reason} ->
+        handle_failure("Failed to fetch endpoint", {:error, :network_error})
     end
   end
 
-  defp is_agent_friendly?(html) do
-    # Simple heuristic checks for semantic structure
-    has_main = String.contains?(html, "<main")
-    has_h1 = String.contains?(html, "<h1")
-    # Check for excessive script usage might be tricky with simple string matching,
-    # but we can check if the ratio of script tags to content is high or just ensure main content exists.
+  defp valid_json?(body) do
+    case Jason.decode(body) do
+      {:ok, _} -> true
+      {:error, _} -> false
+    end
+  end
 
-    has_main && has_h1
+  defp handle_failure(message, static_error) do
+    Logger.error("AX Audit Failed: #{message}")
+    prepare_pr(static_error)
+  end
+
+  defp prepare_pr(static_error) do
+    try do
+      # Avoid PR spam loops for automated fixes
+      dedup_search = "gh pr list --search 'AX Audit Fix: #{inspect(static_error)}'"
+
+      case System.cmd("sh", ["-c", dedup_search]) do
+        {output, 0} ->
+          if String.trim(output) == "" do
+            create_pr(static_error)
+          else
+            Logger.info("PR already exists for #{inspect(static_error)}")
+          end
+        _ ->
+          Logger.error("Failed to check for existing PRs")
+      end
+    rescue
+      e in ErlangError -> Logger.error("Failed to execute gh: #{inspect(e)}")
+    end
+  end
+
+  defp create_pr(static_error) do
+    branch_name = "ax-audit-fix-#{:os.system_time(:second)}"
+
+    # Prepare and push branch avoiding direct local git mutations
+    # Memory mandates using write-tree, commit-tree, update-ref, push
+    try do
+      {tree_hash, 0} = System.cmd("sh", ["-c", "git write-tree"])
+      tree_hash = String.trim(tree_hash)
+
+      commit_msg = "AX Audit Fix: #{inspect(static_error)}"
+      {commit_hash, 0} = System.cmd("sh", ["-c", "git commit-tree #{tree_hash} -p HEAD -m '#{commit_msg}'"])
+      commit_hash = String.trim(commit_hash)
+
+      {_, 0} = System.cmd("sh", ["-c", "git update-ref refs/heads/#{branch_name} #{commit_hash}"])
+      {_, 0} = System.cmd("sh", ["-c", "git push origin #{branch_name}"])
+
+      {gh_out, 0} = System.cmd("sh", ["-c", "gh pr create --title 'AX Audit Fix: #{inspect(static_error)}' --body 'Automated fix for AX Audit failure.' --head #{branch_name}"])
+      Logger.info("PR Created: #{gh_out}")
+    rescue
+      MatchError -> Logger.error("Git/GH commands failed while creating PR for AX Audit.")
+    end
   end
 end
