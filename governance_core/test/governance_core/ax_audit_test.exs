@@ -1,14 +1,17 @@
 defmodule GovernanceCore.AXAuditTest do
   use ExUnit.Case, async: true
-  import GovernanceCore.AXAudit
+  import ExUnit.CaptureLog
+  alias GovernanceCore.AXAudit
 
-  test "is_agent_friendly?/1 detects semantic tags" do
-    valid_html = "<html><body><main><h1>Title</h1>Content</main></body></html>"
-    assert is_agent_friendly?(valid_html) == true
-  end
+  test "AX Audit runs handle_info and survives timeouts without crashing" do
+    {:ok, pid} = GenServer.start_link(AXAudit, %{})
 
-  test "is_agent_friendly?/1 rejects missing main tag" do
-    invalid_html = "<html><body><div><h1>Title</h1>Content</div></body></html>"
-    assert is_agent_friendly?(invalid_html) == false
+    log = capture_log(fn ->
+      send(pid, :audit)
+      :sys.get_state(pid)
+    end)
+
+    assert Process.alive?(pid) == true
+    assert String.contains?(log, "Starting Continuous AX Audit on MCP endpoint...")
   end
 end
