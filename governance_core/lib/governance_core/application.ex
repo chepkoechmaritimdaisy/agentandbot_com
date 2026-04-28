@@ -14,6 +14,11 @@ defmodule GovernanceCore.Application do
       {Phoenix.PubSub, name: GovernanceCore.PubSub},
       # Start the CommentMonitor for real-time monitoring
       GovernanceCore.Monitoring.CommentMonitor,
+      GovernanceCore.Protocols.Fuzzer,
+      GovernanceCore.AXAudit,
+      GovernanceCore.Monitoring.SkillTracker,
+      GovernanceCore.Monitoring.ResourceWatchdog,
+      {GovernanceCore.SecurityAudit, []},
       # Start to serve requests, typically the last entry
       GovernanceCoreWeb.Endpoint
     ]
