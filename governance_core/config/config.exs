@@ -51,6 +51,9 @@ config :logger, :default_formatter,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
+# Configure audit log path dynamically
+config :governance_core, :audit_log_path, System.get_env("AUDIT_LOG_PATH")
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"
