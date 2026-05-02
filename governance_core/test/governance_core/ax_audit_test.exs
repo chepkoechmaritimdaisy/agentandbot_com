@@ -11,4 +11,16 @@ defmodule GovernanceCore.AXAuditTest do
     invalid_html = "<html><body><div><h1>Title</h1>Content</div></body></html>"
     assert is_agent_friendly?(invalid_html) == false
   end
+
+  describe "perform_audit/0" do
+    import ExUnit.CaptureLog
+
+    test "handles endpoint checks without crashing" do
+      log = capture_log(fn ->
+        GovernanceCore.AXAudit.perform_audit()
+      end)
+
+      assert log =~ "Starting Continuous AX Audit"
+    end
+  end
 end
