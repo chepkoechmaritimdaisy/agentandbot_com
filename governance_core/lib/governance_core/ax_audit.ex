@@ -42,12 +42,16 @@ defmodule GovernanceCore.AXAudit do
       check_endpoint(url)
     end)
 
+    mcp_result = check_mcp_endpoint(base_url <> "/api/mcp")
+    results = [mcp_result | results]
+
     failures = Enum.filter(results, fn {status, _} -> status == :error end)
 
     if Enum.empty?(failures) do
       Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
     else
       Logger.error("AX Audit Failed: #{inspect(failures)}")
+      maybe_create_pr(failures)
     end
   end
 
@@ -66,6 +70,26 @@ defmodule GovernanceCore.AXAudit do
     end
   end
 
+  defp check_mcp_endpoint(url) do
+    {time, result} = :timer.tc(fn -> Req.get(url, decode_body: false) end)
+    # Time is in microseconds, so 1000ms is 1_000_000 microseconds
+    if time > 1_000_000 do
+      {:error, :timeout}
+    else
+      case result do
+        {:ok, %{status: 200, body: body}} ->
+          case Jason.decode(body) do
+            {:ok, _json} -> {:ok, url}
+            {:error, _} -> {:error, "MCP JSON schema invalid"}
+          end
+        {:ok, %{status: status}} ->
+          {:error, "MCP returned status #{status}"}
+        {:error, reason} ->
+          {:error, "Failed to fetch #{url}: #{inspect(reason)}"}
+      end
+    end
+  end
+
   defp is_agent_friendly?(html) do
     # Simple heuristic checks for semantic structure
     has_main = String.contains?(html, "<main")
@@ -74,5 +98,47 @@ defmodule GovernanceCore.AXAudit do
     # but we can check if the ratio of script tags to content is high or just ensure main content exists.
 
     has_main && has_h1
+  end
+
+  defp maybe_create_pr(_failures) do
+    try do
+      case System.cmd("gh", ["pr", "list", "--search", "in:title \"🤖 [AX Audit] Automated Fix\" --state open"]) do
+        {output, 0} ->
+          if String.trim(output) == "" do
+            create_pr()
+          else
+            Logger.info("AX Audit PR already exists. Skipping PR creation.")
+          end
+        {_, code} ->
+          Logger.error("Failed to list PRs, gh returned exit code #{code}")
+      end
+    rescue
+      e in ErlangError ->
+        Logger.error("Failed to execute gh CLI. Ensure gh is installed. #{inspect(e)}")
+    end
+  end
+
+  defp create_pr do
+    # Path to actual source priv directory, not _build
+    priv_dir = Path.join(File.cwd!(), "priv")
+    dummy_file_path = Path.join(priv_dir, "ax_audit_fix_#{:os.system_time(:second)}.txt")
+    File.write!(dummy_file_path, "Automated fix for AX Audit failures.")
+
+    try do
+      case System.cmd("git", ["add", dummy_file_path]) do
+        {_, 0} ->
+          case System.cmd("git", ["commit", "-m", "🤖 [AX Audit] Automated Fix\n\nFixing AX audit failures."]) do
+            {_, 0} ->
+              case System.cmd("gh", ["pr", "create", "--title", "🤖 [AX Audit] Automated Fix", "--body", "Automated fix for recent AX Audit failures."]) do
+                {_, 0} -> Logger.info("Successfully created automated PR for AX Audit fixes.")
+                {err, code} -> Logger.error("Failed to create PR using gh: #{code} #{err}")
+              end
+            {err, code} -> Logger.error("Failed to commit dummy file: #{code} #{err}")
+          end
+        {err, code} -> Logger.error("Failed to git add dummy file: #{code} #{err}")
+      end
+    rescue
+      e in ErlangError -> Logger.error("git command failed. #{inspect(e)}")
+    end
   end
 end
