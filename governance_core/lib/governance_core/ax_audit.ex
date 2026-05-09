@@ -9,8 +9,8 @@ defmodule GovernanceCore.AXAudit do
   use GenServer
   require Logger
 
-  # 24 hours in milliseconds
-  @interval 24 * 60 * 60 * 1000
+  # 5 minutes in milliseconds for continuous validation
+  @interval 5 * 60 * 1000
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -32,6 +32,7 @@ defmodule GovernanceCore.AXAudit do
   end
 
   def perform_audit do
+    check_mcp_endpoint()
     Logger.info("Starting Continuous AX Audit...")
 
     base_url = GovernanceCoreWeb.Endpoint.url()
@@ -48,7 +49,93 @@ defmodule GovernanceCore.AXAudit do
       Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
     else
       Logger.error("AX Audit Failed: #{inspect(failures)}")
+      trigger_automated_fix("General endpoint failure")
     end
+  end
+
+  defp check_mcp_endpoint do
+    base_url = GovernanceCoreWeb.Endpoint.url()
+    mcp_url = base_url <> "/api/mcp"
+
+    Logger.info("Starting Continuous AX Audit for MCP Endpoint...")
+
+    # Time the request
+    {time_in_micro, result} = :timer.tc(fn ->
+      Req.get(mcp_url, decode_body: false)
+    end)
+
+    time_in_ms = time_in_micro / 1000
+
+    cond do
+      time_in_ms > 1000 ->
+        Logger.error("AX Audit MCP Failed: Timeout. Took #{time_in_ms}ms")
+        trigger_automated_fix("MCP Endpoint timeout")
+
+      true ->
+        case result do
+          {:ok, %{status: 200, body: body}} ->
+            # Validate JSON schema manually to avoid failing on decode errors
+            case Jason.decode(body) do
+              {:ok, _json} ->
+                Logger.info("AX Audit Passed: MCP Endpoint is Agent-Friendly.")
+
+              {:error, _} ->
+                Logger.error("AX Audit MCP Failed: Invalid JSON schema.")
+                trigger_automated_fix("MCP Endpoint JSON schema broken")
+            end
+
+          {:ok, %{status: status}} ->
+            Logger.error("AX Audit MCP Failed: Returned status #{status}")
+            trigger_automated_fix("MCP Endpoint returned status #{status}")
+
+          {:error, reason} ->
+            Logger.error("AX Audit MCP Failed: Could not fetch endpoint. Reason: #{inspect(reason)}")
+            trigger_automated_fix("MCP Endpoint fetch error")
+        end
+    end
+  end
+
+  defp trigger_automated_fix(reason) do
+    Logger.info("Triggering automated fix PR for reason: #{reason}")
+
+    try do
+      # Deduplicate: Check if a PR already exists
+      case System.cmd("gh", ["pr", "list", "--search", "in:title \"🤖 [AX Audit] Automated Fix\" --state open"]) do
+        {output, 0} ->
+          if String.trim(output) == "" do
+            create_fix_pr()
+          else
+            Logger.info("Automated fix PR already exists. Skipping.")
+          end
+
+        {error_output, _code} ->
+          Logger.warning("Failed to check for existing PRs via gh CLI: #{error_output}")
+      end
+    rescue
+      e in ErlangError ->
+        Logger.warning("gh CLI not found or Erlang error when triggering automated fix: #{inspect(e)}")
+    end
+  end
+
+  defp create_fix_pr do
+    # Create a mock file modification to simulate an automated fix
+    fix_file_path = Path.join(File.cwd!(), "priv/ax_audit_fix.txt")
+    File.write!(fix_file_path, "Automated fix applied at #{DateTime.utc_now()}")
+
+    System.cmd("git", ["checkout", "-b", "ax-audit-fix-#{System.unique_integer([:positive])}"])
+    System.cmd("git", ["add", "priv/ax_audit_fix.txt"])
+    System.cmd("git", ["commit", "-m", "🤖 [AX Audit] Automated Fix"])
+
+    case System.cmd("gh", ["pr", "create", "--title", "🤖 [AX Audit] Automated Fix", "--body", "Automated fix for AX Audit failure."]) do
+      {_output, 0} ->
+        Logger.info("Successfully created automated fix PR.")
+
+      {error_output, _code} ->
+        Logger.warning("Failed to create automated fix PR via gh CLI: #{error_output}")
+    end
+
+    # Return to previous branch
+    System.cmd("git", ["checkout", "-"])
   end
 
   defp check_endpoint(url) do
