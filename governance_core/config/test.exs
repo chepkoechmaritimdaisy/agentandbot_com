@@ -17,7 +17,6 @@ config :governance_core, GovernanceCore.Repo,
 # you can enable the server option below.
 config :governance_core, GovernanceCoreWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
-  secret_key_base: "1h2WSaACXbnY3reby8DXXCiylAQqkRy8A5m9EQvR7ftY6Nvt97qQmp+SgT86rAeM",
   server: false
 
 # Print only warnings and errors during test
