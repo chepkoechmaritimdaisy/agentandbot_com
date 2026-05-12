@@ -11,6 +11,8 @@ config :governance_core,
   ecto_repos: [GovernanceCore.Repo],
   generators: [timestamp_type: :utc_datetime, binary_id: true]
 
+config :governance_core, audit_log_path: Path.expand("../priv/agent_traffic.log", __DIR__)
+
 # Configure the endpoint
 config :governance_core, GovernanceCoreWeb.Endpoint,
   url: [host: "localhost"],
