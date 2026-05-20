@@ -7,6 +7,20 @@ import Config
 # any compile-time configuration in here, as it won't be applied.
 # The block below contains prod specific runtime configuration.
 
+secret_key_base =
+  System.get_env("SECRET_KEY_BASE") ||
+    if config_env() in [:dev, :test] do
+      "L3fNoe5A/bE/6XUJRJJGWTbkrvX5WiaOJaPhUmQ3jOFLsXUFwBwZl8aK8m/M+oQm1h2WSaACXbnY3reby8DXXCiylAQqkRy8A5m9EQvR7ftY6Nvt97qQmp+SgT86rAeM"
+    else
+      raise """
+      environment variable SECRET_KEY_BASE is missing.
+      You can generate one by calling: mix phx.gen.secret
+      """
+    end
+
+config :governance_core, GovernanceCoreWeb.Endpoint,
+  secret_key_base: secret_key_base
+
 # ## Using releases
 #
 # If you use `mix release`, you need to explicitly enable the server
@@ -41,18 +55,6 @@ if config_env() == :prod do
     # pool_count: 4,
     socket_options: maybe_ipv6
 
-  # The secret key base is used to sign/encrypt cookies and other secrets.
-  # A default value is used in config/dev.exs and config/test.exs but you
-  # want to use a different value for prod and you most likely don't want
-  # to check this value into version control, so we use an environment
-  # variable instead.
-  secret_key_base =
-    System.get_env("SECRET_KEY_BASE") ||
-      raise """
-      environment variable SECRET_KEY_BASE is missing.
-      You can generate one by calling: mix phx.gen.secret
-      """
-
   host = System.get_env("PHX_HOST") || "example.com"
 
   config :governance_core, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
@@ -65,8 +67,7 @@ if config_env() == :prod do
       # See the documentation on https://hexdocs.pm/bandit/Bandit.html#t:options/0
       # for details about using IPv6 vs IPv4 and loopback vs public addresses.
       ip: {0, 0, 0, 0, 0, 0, 0, 0}
-    ],
-    secret_key_base: secret_key_base
+    ]
 
   # ## SSL Support
   #
