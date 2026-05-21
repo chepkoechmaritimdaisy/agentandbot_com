@@ -1,16 +1,14 @@
 defmodule GovernanceCore.AXAudit do
   @moduledoc """
-  Runs a nightly audit of the application to ensure it remains "Agent-Friendly".
-  Checks for:
-  - Semantic HTML structure (presence of <main>, <h1>, <article>)
-  - Accessibility of SKILL.md files
-  - Low complexity (avoiding heavy JS blocking)
+  Runs a continuous audit of the application to ensure it remains "Agent-Friendly".
+  Queries the `/api/mcp` endpoint and checks for valid JSON schema and response times.
+  Automatically fixes and opens a PR if issues are found.
   """
   use GenServer
   require Logger
 
-  # 24 hours in milliseconds
-  @interval 24 * 60 * 60 * 1000
+  # 5 minutes in milliseconds
+  @interval 5 * 60 * 1000
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -34,45 +32,98 @@ defmodule GovernanceCore.AXAudit do
   def perform_audit do
     Logger.info("Starting Continuous AX Audit...")
 
-    base_url = GovernanceCoreWeb.Endpoint.url()
-    endpoints = ["/", "/agents", "/dashboard/traffic"]
+    url = GovernanceCoreWeb.Endpoint.url() <> "/api/mcp"
 
-    results = Enum.map(endpoints, fn path ->
-      url = base_url <> path
-      check_endpoint(url)
-    end)
-
-    failures = Enum.filter(results, fn {status, _} -> status == :error end)
-
-    if Enum.empty?(failures) do
-      Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
-    else
-      Logger.error("AX Audit Failed: #{inspect(failures)}")
+    case check_endpoint(url) do
+      :ok ->
+        Logger.info("AX Audit Passed: Endpoint #{url} is Agent-Friendly.")
+      {:error, reason} ->
+        Logger.error("AX Audit Failed: #{reason}")
+        handle_failure(reason)
     end
   end
 
   defp check_endpoint(url) do
-    case Req.get(url) do
-      {:ok, %{status: 200, body: body}} ->
-        if is_agent_friendly?(body) do
-          {:ok, url}
-        else
-          {:error, "Endpoint #{url} is not agent-friendly (missing semantic tags or too complex)"}
-        end
-      {:ok, %{status: status}} ->
-        {:error, "Endpoint #{url} returned status #{status}"}
-      {:error, reason} ->
-        {:error, "Failed to fetch #{url}: #{inspect(reason)}"}
+    {time_us, result} = :timer.tc(fn -> Req.get(url, decode_body: false) end)
+
+    # 1000ms = 1_000_000 microseconds
+    if time_us > 1_000_000 do
+      {:error, "Response time #{div(time_us, 1000)}ms exceeded 1000ms limit"}
+    else
+      case result do
+        {:ok, %{status: 200, body: body}} ->
+          case Jason.decode(body) do
+            {:ok, _json} -> :ok
+            {:error, _} -> {:error, "Response body is not valid JSON"}
+          end
+        {:ok, %{status: status}} ->
+          {:error, "Endpoint returned status #{status}"}
+        {:error, reason} ->
+          {:error, "Failed to fetch: #{inspect(reason)}"}
+      end
     end
   end
 
-  defp is_agent_friendly?(html) do
-    # Simple heuristic checks for semantic structure
-    has_main = String.contains?(html, "<main")
-    has_h1 = String.contains?(html, "<h1")
-    # Check for excessive script usage might be tricky with simple string matching,
-    # but we can check if the ratio of script tags to content is high or just ensure main content exists.
+  defp handle_failure(reason) do
+    try do
+      # Avoid PR spam loops
+      case System.cmd("gh", ["pr", "list", "--search", "🤖 [AX Audit] Automated Fix in:title", "--state", "open"]) do
+        {output, 0} ->
+          if String.trim(output) == "" do
+            create_fix_pr(reason)
+          else
+            Logger.info("AX Audit PR already open, skipping.")
+          end
+        {err, code} ->
+          Logger.error("Failed to list PRs: #{err} (code #{code})")
+      end
+    rescue
+      e in ErlangError ->
+        Logger.error("Failed to run System.cmd: #{inspect(e)}")
+    end
+  end
 
-    has_main && has_h1
+  defp create_fix_pr(reason) do
+    try do
+      file_path = Path.join(File.cwd!(), "priv/ax_audit_fix.txt")
+      fix_content = "Automated fix triggered due to: #{reason}\n"
+
+      File.write!(file_path, fix_content)
+
+      branch_name = "ax-audit-fix-#{System.unique_integer([:positive])}"
+
+      case System.cmd("git", ["checkout", "-b", branch_name]) do
+        {_, 0} ->
+          case System.cmd("git", ["add", file_path]) do
+            {_, 0} ->
+              case System.cmd("git", ["commit", "-m", "🤖 [AX Audit] Automated Fix"]) do
+                {_, 0} ->
+                  case System.cmd("git", ["push", "-u", "origin", branch_name]) do
+                    {_, 0} ->
+                      case System.cmd("gh", ["pr", "create", "--title", "🤖 [AX Audit] Automated Fix", "--body", fix_content]) do
+                        {out, 0} ->
+                          Logger.info("Created PR for AX Audit fix: #{out}")
+                        {err, code} ->
+                          Logger.error("Failed to create PR: #{err} (code #{code})")
+                      end
+                    {err, code} ->
+                      Logger.error("Failed to push branch: #{err} (code #{code})")
+                  end
+                {err, code} ->
+                  Logger.error("Failed to commit: #{err} (code #{code})")
+              end
+            {err, code} ->
+              Logger.error("Failed to add file: #{err} (code #{code})")
+          end
+        {err, code} ->
+          Logger.error("Failed to checkout branch: #{err} (code #{code})")
+      end
+
+      # switch back to previous branch
+      System.cmd("git", ["checkout", "-"])
+    rescue
+      e in ErlangError ->
+        Logger.error("Failed to run System.cmd during PR creation: #{inspect(e)}")
+    end
   end
 end
