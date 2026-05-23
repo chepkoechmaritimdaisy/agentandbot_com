@@ -9,8 +9,8 @@ defmodule GovernanceCore.AXAudit do
   use GenServer
   require Logger
 
-  # 24 hours in milliseconds
-  @interval 24 * 60 * 60 * 1000
+  # Continuous 5 minute interval
+  @interval 5 * 60 * 1000
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -42,12 +42,88 @@ defmodule GovernanceCore.AXAudit do
       check_endpoint(url)
     end)
 
-    failures = Enum.filter(results, fn {status, _} -> status == :error end)
+    mcp_url = base_url <> "/api/mcp"
+    mcp_result = check_mcp_endpoint(mcp_url)
+
+    failures = Enum.filter(results ++ [mcp_result], fn {status, _} -> status == :error end)
 
     if Enum.empty?(failures) do
       Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
     else
       Logger.error("AX Audit Failed: #{inspect(failures)}")
+      auto_fix_mcp_failures(failures)
+    end
+  end
+
+  defp check_mcp_endpoint(url) do
+    {time, result} = :timer.tc(fn -> Req.get(url, decode_body: false) end)
+
+    # Convert time from microseconds to milliseconds
+    time_ms = time / 1000
+
+    if time_ms > 1000 do
+      {:error, "MCP Endpoint #{url} response time #{time_ms}ms exceeds 1000ms timeout"}
+    else
+      case result do
+        {:ok, %{status: 200, body: body}} ->
+          case Jason.decode(body) do
+            {:ok, _json} -> {:ok, url}
+            {:error, reason} -> {:error, "MCP Endpoint #{url} returned invalid JSON schema: #{inspect(reason)}"}
+          end
+        {:ok, %{status: status}} ->
+          {:error, "MCP Endpoint #{url} returned status #{status}"}
+        {:error, reason} ->
+          {:error, "Failed to fetch MCP Endpoint #{url}: #{inspect(reason)}"}
+      end
+    end
+  end
+
+  defp auto_fix_mcp_failures(failures) do
+    try do
+      # Make failures JSON encodable (convert tuples to maps)
+      encodable_failures = Enum.map(failures, fn {:error, reason} -> %{error: reason} end)
+
+      case System.cmd("gh", ["pr", "list", "--search", "🤖 [AX Audit] Automated Fix", "--json", "title"]) do
+        {output, 0} ->
+          if String.contains?(output, "🤖 [AX Audit] Automated Fix") do
+            Logger.info("Automated PR for AX Audit already exists. Skipping PR creation.")
+          else
+            create_automated_pr(encodable_failures)
+          end
+        {output, code} ->
+          Logger.error("gh pr list failed with code #{code}: #{output}")
+      end
+    rescue
+      e in ErlangError ->
+        Logger.error("Failed to run 'gh' CLI. Is it installed? Error: #{inspect(e)}")
+    end
+  end
+
+  defp create_automated_pr(failures) do
+    json_failures = Jason.encode!(failures)
+
+    # Path to write the temporary file
+    log_file_path = Path.join(File.cwd!(), "priv/ax_audit_failures.json")
+
+    case File.write(log_file_path, json_failures) do
+      :ok ->
+        branch_name = "ax-audit-auto-fix-#{System.system_time(:second)}"
+        try do
+          System.cmd("git", ["checkout", "-b", branch_name])
+          System.cmd("git", ["add", "priv/ax_audit_failures.json"])
+          case System.cmd("git", ["commit", "-m", "🤖 [AX Audit] Automated Fix"]) do
+            {_, 0} ->
+              System.cmd("gh", ["pr", "create", "--title", "🤖 [AX Audit] Automated Fix", "--body", "Automated fix for AX Audit failures.", "--head", branch_name])
+              Logger.info("Successfully created automated PR for AX Audit failures.")
+            {output, code} ->
+              Logger.error("git commit failed with code #{code}: #{output}")
+          end
+        rescue
+          e in ErlangError ->
+            Logger.error("Failed to create automated PR. Error: #{inspect(e)}")
+        end
+      {:error, reason} ->
+        Logger.error("Failed to write ax_audit_failures.json: #{inspect(reason)}")
     end
   end
 
