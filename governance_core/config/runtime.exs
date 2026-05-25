@@ -23,6 +23,12 @@ end
 config :governance_core, GovernanceCoreWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+if config_env() in [:dev, :test] do
+  fallback_secret = "dev_and_test_fallback_secret_key_base_#{config_env()}_which_needs_to_be_long_enough_to_work_properly_with_phoenix"
+  config :governance_core, GovernanceCoreWeb.Endpoint,
+    secret_key_base: System.get_env("SECRET_KEY_BASE") || fallback_secret
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
