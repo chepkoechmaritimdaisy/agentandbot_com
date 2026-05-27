@@ -9,8 +9,8 @@ defmodule GovernanceCore.AXAudit do
   use GenServer
   require Logger
 
-  # 24 hours in milliseconds
-  @interval 24 * 60 * 60 * 1000
+  # 5 minutes in milliseconds
+  @interval 5 * 60 * 1000
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -42,12 +42,15 @@ defmodule GovernanceCore.AXAudit do
       check_endpoint(url)
     end)
 
-    failures = Enum.filter(results, fn {status, _} -> status == :error end)
+    mcp_result = check_mcp_endpoint(base_url <> "/api/mcp")
+
+    failures = Enum.filter(results ++ [mcp_result], fn {status, _} -> status == :error end)
 
     if Enum.empty?(failures) do
       Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
     else
       Logger.error("AX Audit Failed: #{inspect(failures)}")
+      handle_failures(failures)
     end
   end
 
@@ -74,5 +77,84 @@ defmodule GovernanceCore.AXAudit do
     # but we can check if the ratio of script tags to content is high or just ensure main content exists.
 
     has_main && has_h1
+  end
+
+  defp check_mcp_endpoint(url) do
+    {time_in_microsecs, result} = :timer.tc(fn -> Req.get(url, decode_body: false) end)
+
+    if time_in_microsecs > 1_000_000 do
+      {:error, "MCP endpoint response time exceeded 1000ms: #{time_in_microsecs / 1000}ms"}
+    else
+      case result do
+        {:ok, %{status: 200, body: body}} ->
+          case Jason.decode(body) do
+            {:ok, _json} -> {:ok, url}
+            {:error, reason} -> {:error, "MCP endpoint returned invalid JSON schema: #{inspect(reason)}"}
+          end
+        {:ok, %{status: status}} ->
+          {:error, "MCP endpoint #{url} returned status #{status}"}
+        {:error, reason} ->
+          {:error, "Failed to fetch MCP endpoint #{url}: #{inspect(reason)}"}
+      end
+    end
+  end
+
+  defp handle_failures(failures) do
+    # Serialize errors to a JSON file in the source priv/ directory
+    priv_dir = Path.join(File.cwd!(), "priv")
+    File.mkdir_p!(priv_dir)
+    file_path = Path.join(priv_dir, "ax_audit_failures.json")
+
+    # Map failures to encodable structures (maps or strings)
+    encodable_failures = Enum.map(failures, fn {:error, reason} -> %{error: inspect(reason)} end)
+
+    File.write!(file_path, Jason.encode!(encodable_failures))
+
+    create_automated_pr(file_path)
+  end
+
+  defp create_automated_pr(file_path) do
+    try do
+      # Deduplication: Check if PR already exists
+      case System.cmd("gh", ["pr", "list", "--search", "🤖 [AX Audit] Automated Fix", "--state", "open"]) do
+        {output, 0} ->
+          if String.contains?(output, "[AX Audit] Automated Fix") do
+            Logger.info("AX Audit PR already exists, skipping creation.")
+          else
+            execute_pr_creation(file_path)
+          end
+        {error_output, exit_code} ->
+          Logger.error("Failed to check existing PRs: #{error_output} (exit code #{exit_code})")
+      end
+    rescue
+      e in ErlangError -> Logger.error("Failed to execute gh CLI for checking PRs: #{inspect(e)}")
+    end
+  end
+
+  defp execute_pr_creation(file_path) do
+    try do
+      branch_name = "ax-audit-fix-#{System.system_time(:second)}"
+
+      # Create branch
+      System.cmd("git", ["checkout", "-b", branch_name])
+
+      # Add and commit the file
+      System.cmd("git", ["add", file_path])
+      System.cmd("git", ["commit", "-m", "🤖 [AX Audit] Automated Fix"])
+
+      # Push branch (assuming remote is origin)
+      System.cmd("git", ["push", "-u", "origin", branch_name])
+
+      # Create PR
+      case System.cmd("gh", ["pr", "create", "--title", "🤖 [AX Audit] Automated Fix", "--body", "Automated fix for AX Audit failures.", "--head", branch_name]) do
+        {output, 0} -> Logger.info("Created AX Audit PR: #{output}")
+        {error_output, exit_code} -> Logger.error("Failed to create AX Audit PR: #{error_output} (exit code #{exit_code})")
+      end
+
+      # Go back to main
+      System.cmd("git", ["checkout", "-"])
+    rescue
+      e in ErlangError -> Logger.error("Failed to execute CLI commands for PR creation: #{inspect(e)}")
+    end
   end
 end
