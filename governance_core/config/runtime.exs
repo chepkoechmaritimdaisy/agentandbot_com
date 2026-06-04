@@ -20,6 +20,15 @@ if System.get_env("PHX_SERVER") do
   config :governance_core, GovernanceCoreWeb.Endpoint, server: true
 end
 
+if config_env() in [:dev, :test] do
+  secret_key_base =
+    System.get_env("SECRET_KEY_BASE") ||
+      "fallback_secret_key_base_for_dev_and_test_only_do_not_use_in_prod"
+
+  config :governance_core, GovernanceCoreWeb.Endpoint,
+    secret_key_base: secret_key_base
+end
+
 config :governance_core, GovernanceCoreWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
