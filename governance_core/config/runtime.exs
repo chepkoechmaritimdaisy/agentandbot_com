@@ -67,6 +67,11 @@ if config_env() == :prod do
       ip: {0, 0, 0, 0, 0, 0, 0, 0}
     ],
     secret_key_base: secret_key_base
+end
+
+if config_env() in [:dev, :test] do
+  config :governance_core, GovernanceCoreWeb.Endpoint,
+    secret_key_base: System.get_env("SECRET_KEY_BASE", "L3fNoe5A/bE/6XUJRJJGWTbkrvX5WiaOJaPhUmQ3jOFLsXUFwBwZl8aK8m/M+oQm")
 
   # ## SSL Support
   #
