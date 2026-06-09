@@ -9,8 +9,8 @@ defmodule GovernanceCore.AXAudit do
   use GenServer
   require Logger
 
-  # 24 hours in milliseconds
-  @interval 24 * 60 * 60 * 1000
+  # Continuous interval: 5 minutes
+  @interval 5 * 60 * 1000
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -42,12 +42,20 @@ defmodule GovernanceCore.AXAudit do
       check_endpoint(url)
     end)
 
+    mcp_result = check_mcp_endpoint(base_url <> "/api/mcp")
+
     failures = Enum.filter(results, fn {status, _} -> status == :error end)
+
+    failures = case mcp_result do
+      {:error, reason} -> [{:error, reason} | failures]
+      _ -> failures
+    end
 
     if Enum.empty?(failures) do
       Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
     else
       Logger.error("AX Audit Failed: #{inspect(failures)}")
+      create_automated_pr(failures)
     end
   end
 
@@ -63,6 +71,76 @@ defmodule GovernanceCore.AXAudit do
         {:error, "Endpoint #{url} returned status #{status}"}
       {:error, reason} ->
         {:error, "Failed to fetch #{url}: #{inspect(reason)}"}
+    end
+  end
+
+  defp check_mcp_endpoint(url) do
+    {time_us, result} = :timer.tc(fn ->
+      Req.get(url, decode_body: false)
+    end)
+
+    time_ms = time_us / 1000
+
+    if time_ms > 1000 do
+      {:error, "Endpoint #{url} response time exceeded 1000ms"}
+    else
+      case result do
+        {:ok, %{status: 200, body: body}} ->
+          case Jason.decode(body) do
+            {:ok, _json} -> {:ok, url}
+            {:error, _reason} -> {:error, "Endpoint #{url} returned invalid JSON schema"}
+          end
+        {:ok, %{status: status}} ->
+          {:error, "Endpoint #{url} returned status #{status}"}
+        {:error, reason} ->
+          {:error, "Failed to fetch #{url}: #{inspect(reason)}"}
+      end
+    end
+  end
+
+  defp create_automated_pr(failures) do
+    try do
+      # Deduplicate PR creation
+      case System.cmd("gh", ["pr", "list", "--search", "🤖 [AX Audit] Automated Fix", "--state", "open"]) do
+        {output, 0} ->
+          if output == "" do
+            do_create_pr(failures)
+          else
+            Logger.info("Automated PR already exists, skipping.")
+          end
+        {_, _} ->
+          Logger.error("Failed to check existing PRs with gh CLI")
+      end
+    rescue
+      e in ErlangError ->
+        Logger.error("Failed to execute gh CLI: #{inspect(e)}")
+    end
+  end
+
+  defp do_create_pr(failures) do
+    branch_name = "automated-ax-fix-#{System.unique_integer([:positive])}"
+
+    try do
+      {_, 0} = System.cmd("git", ["checkout", "-b", branch_name])
+
+      # Write a fix file
+      fix_path = Path.join(File.cwd!(), "priv/ax_audit_fix.log")
+
+      string_failures = Enum.map(failures, fn {:error, reason} -> reason end)
+
+      File.write!(fix_path, Jason.encode!(string_failures))
+
+      {_, 0} = System.cmd("git", ["add", "priv/ax_audit_fix.log"])
+      {_, 0} = System.cmd("git", ["commit", "-m", "🤖 [AX Audit] Automated Fix"])
+      {_, 0} = System.cmd("git", ["push", "-u", "origin", branch_name])
+      {_, 0} = System.cmd("gh", ["pr", "create", "--title", "🤖 [AX Audit] Automated Fix", "--body", "Automated AX Audit fix for endpoints."])
+    rescue
+      e in ErlangError ->
+        Logger.error("Failed to execute git/gh CLI for PR creation: #{inspect(e)}")
+      e ->
+        Logger.error("Failed to create automated PR: #{inspect(e)}")
+    after
+      System.cmd("git", ["checkout", "main"])
     end
   end
 
