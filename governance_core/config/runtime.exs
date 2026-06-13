@@ -20,8 +20,24 @@ if System.get_env("PHX_SERVER") do
   config :governance_core, GovernanceCoreWeb.Endpoint, server: true
 end
 
+# The secret key base is used to sign/encrypt cookies and other secrets.
+secret_key_base =
+  System.get_env("SECRET_KEY_BASE") ||
+    if config_env() in [:dev, :test] do
+      case config_env() do
+        :dev -> "L3fNoe5A/bE/6XUJRJJGWTbkrvX5WiaOJaPhUmQ3jOFLsXUFwBwZl8aK8m/M+oQm"
+        :test -> "1h2WSaACXbnY3reby8DXXCiylAQqkRy8A5m9EQvR7ftY6Nvt97qQmp+SgT86rAeM"
+      end
+    else
+      raise """
+      environment variable SECRET_KEY_BASE is missing.
+      You can generate one by calling: mix phx.gen.secret
+      """
+    end
+
 config :governance_core, GovernanceCoreWeb.Endpoint,
-  http: [port: String.to_integer(System.get_env("PORT", "4000"))]
+  http: [port: String.to_integer(System.get_env("PORT", "4000"))],
+  secret_key_base: secret_key_base
 
 if config_env() == :prod do
   database_url =
@@ -45,14 +61,6 @@ if config_env() == :prod do
   # A default value is used in config/dev.exs and config/test.exs but you
   # want to use a different value for prod and you most likely don't want
   # to check this value into version control, so we use an environment
-  # variable instead.
-  secret_key_base =
-    System.get_env("SECRET_KEY_BASE") ||
-      raise """
-      environment variable SECRET_KEY_BASE is missing.
-      You can generate one by calling: mix phx.gen.secret
-      """
-
   host = System.get_env("PHX_HOST") || "example.com"
 
   config :governance_core, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
@@ -65,8 +73,7 @@ if config_env() == :prod do
       # See the documentation on https://hexdocs.pm/bandit/Bandit.html#t:options/0
       # for details about using IPv6 vs IPv4 and loopback vs public addresses.
       ip: {0, 0, 0, 0, 0, 0, 0, 0}
-    ],
-    secret_key_base: secret_key_base
+    ]
 
   # ## SSL Support
   #
