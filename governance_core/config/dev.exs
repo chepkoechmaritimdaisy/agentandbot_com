@@ -24,7 +24,6 @@ config :governance_core, GovernanceCoreWeb.Endpoint,
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
-  secret_key_base: "L3fNoe5A/bE/6XUJRJJGWTbkrvX5WiaOJaPhUmQ3jOFLsXUFwBwZl8aK8m/M+oQm",
   watchers: [
     esbuild: {Esbuild, :install_and_run, [:governance_core, ~w(--sourcemap=inline --watch)]},
     tailwind: {Tailwind, :install_and_run, [:governance_core, ~w(--watch)]}
