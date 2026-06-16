@@ -23,6 +23,17 @@ end
 config :governance_core, GovernanceCoreWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+if config_env() in [:dev, :test] do
+  secret_key_base = System.get_env("SECRET_KEY_BASE") ||
+    if config_env() == :dev do
+      "L3fNoe5A/bE/6XUJRJJGWTbkrvX5WiaOJaPhUmQ3jOFLsXUFwBwZl8aK8m/M+oQm"
+    else
+      "1h2WSaACXbnY3reby8DXXCiylAQqkRy8A5m9EQvR7ftY6Nvt97qQmp+SgT86rAeM"
+    end
+
+  config :governance_core, GovernanceCoreWeb.Endpoint, secret_key_base: secret_key_base
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
