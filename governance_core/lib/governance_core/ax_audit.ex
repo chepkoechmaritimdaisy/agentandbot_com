@@ -35,7 +35,7 @@ defmodule GovernanceCore.AXAudit do
     Logger.info("Starting Continuous AX Audit...")
 
     base_url = GovernanceCoreWeb.Endpoint.url()
-    endpoints = ["/", "/agents", "/dashboard/traffic"]
+    endpoints = ["/", "/agents", "/dashboard/traffic", "/api/agents", "/.well-known/agent.json"]
 
     results = Enum.map(endpoints, fn path ->
       url = base_url <> path
@@ -51,21 +51,66 @@ defmodule GovernanceCore.AXAudit do
     end
   end
 
+
   defp check_endpoint(url) do
-    case Req.get(url) do
+    start_time = System.monotonic_time()
+
+    case Req.get(url, decode_body: false) do
       {:ok, %{status: 200, body: body}} ->
-        if is_agent_friendly?(body) do
+        end_time = System.monotonic_time()
+        response_time = System.convert_time_unit(end_time - start_time, :native, :millisecond)
+
+        is_slow = response_time > 1000 # Let's say 1 second is slow
+
+        if is_slow do
+          Logger.warning("AX Audit: Endpoint #{url} is slow: #{response_time}ms")
+        end
+
+        is_valid = if String.contains?(url, "/api/agents") or String.contains?(url, "/agent.json") do
+          case Jason.decode(body) do
+            {:ok, _json} -> true
+            {:error, _} -> false
+          end
+        else
+          is_agent_friendly?(body)
+        end
+
+        if is_valid and not is_slow do
           {:ok, url}
         else
-          {:error, "Endpoint #{url} is not agent-friendly (missing semantic tags or too complex)"}
+          reason = cond do
+            is_slow and not is_valid -> "slow response (#{response_time}ms) and invalid schema/content"
+            is_slow -> "slow response (#{response_time}ms)"
+            not is_valid -> "invalid JSON schema or missing semantic tags"
+          end
+
+          handle_failure(url, reason)
+          {:error, "Endpoint #{url} failed: #{reason}"}
         end
       {:ok, %{status: status}} ->
+        reason = "returned status #{status}"
+        handle_failure(url, reason)
         {:error, "Endpoint #{url} returned status #{status}"}
       {:error, reason} ->
+        error_msg = "failed to fetch: #{inspect(reason)}"
+        handle_failure(url, error_msg)
         {:error, "Failed to fetch #{url}: #{inspect(reason)}"}
     end
   end
 
+  defp handle_failure(url, reason) do
+    title = "AX Audit Failure: #{url}"
+    body = "Endpoint `#{url}` failed AX Audit.
+Reason: #{reason}
+Please investigate and fix."
+
+    try do
+      System.cmd("gh", ["issue", "create", "--title", title, "--body", body, "--label", "bug,jules"], stderr_to_stdout: true)
+    rescue
+      e in ErlangError -> Logger.error("Failed to execute gh CLI: #{inspect(e)}")
+      e -> Logger.error("Failed to run gh cmd: #{inspect(e)}")
+    end
+  end
   defp is_agent_friendly?(html) do
     # Simple heuristic checks for semantic structure
     has_main = String.contains?(html, "<main")
