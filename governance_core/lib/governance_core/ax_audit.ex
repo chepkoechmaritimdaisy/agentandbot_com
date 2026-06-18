@@ -2,9 +2,8 @@ defmodule GovernanceCore.AXAudit do
   @moduledoc """
   Runs a nightly audit of the application to ensure it remains "Agent-Friendly".
   Checks for:
-  - Semantic HTML structure (presence of <main>, <h1>, <article>)
-  - Accessibility of SKILL.md files
-  - Low complexity (avoiding heavy JS blocking)
+  - Agent JSON schema format at `/.well-known/agent.json`
+  - `/api/agents` endpoint performance and response validity
   """
   use GenServer
   require Logger
@@ -35,7 +34,7 @@ defmodule GovernanceCore.AXAudit do
     Logger.info("Starting Continuous AX Audit...")
 
     base_url = GovernanceCoreWeb.Endpoint.url()
-    endpoints = ["/", "/agents", "/dashboard/traffic"]
+    endpoints = ["/api/agents", "/.well-known/agent.json"]
 
     results = Enum.map(endpoints, fn path ->
       url = base_url <> path
@@ -48,31 +47,53 @@ defmodule GovernanceCore.AXAudit do
       Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
     else
       Logger.error("AX Audit Failed: #{inspect(failures)}")
+      report_failure(failures)
     end
   end
 
   defp check_endpoint(url) do
-    case Req.get(url) do
+    start_time = System.monotonic_time()
+
+    case Req.get(url, decode_body: false, receive_timeout: 5000) do
       {:ok, %{status: 200, body: body}} ->
-        if is_agent_friendly?(body) do
-          {:ok, url}
+        end_time = System.monotonic_time()
+        # Ensure response time is under 1 second (1000 ms)
+        response_time_ms = System.convert_time_unit(end_time - start_time, :native, :millisecond)
+
+        if response_time_ms > 1000 do
+            {:error, "Endpoint #{url} response time too slow: #{response_time_ms}ms"}
         else
-          {:error, "Endpoint #{url} is not agent-friendly (missing semantic tags or too complex)"}
+            if is_valid_json_schema?(body) do
+                {:ok, url}
+            else
+                {:error, "Endpoint #{url} returned invalid JSON schema"}
+            end
         end
+
       {:ok, %{status: status}} ->
         {:error, "Endpoint #{url} returned status #{status}"}
+
       {:error, reason} ->
         {:error, "Failed to fetch #{url}: #{inspect(reason)}"}
     end
   end
 
-  defp is_agent_friendly?(html) do
-    # Simple heuristic checks for semantic structure
-    has_main = String.contains?(html, "<main")
-    has_h1 = String.contains?(html, "<h1")
-    # Check for excessive script usage might be tricky with simple string matching,
-    # but we can check if the ratio of script tags to content is high or just ensure main content exists.
+  defp is_valid_json_schema?(body) do
+      case Jason.decode(body) do
+        {:ok, decoded} when is_map(decoded) or is_list(decoded) -> true
+        _ -> false
+      end
+  end
 
-    has_main && has_h1
+  defp report_failure(failures) do
+      failure_details =
+        Enum.map(failures, fn {:error, reason} -> "- #{reason}" end)
+        |> Enum.join("\n")
+
+      title = "AX Audit Failure"
+      body = "The automated AX Audit detected the following issues:\n\n#{failure_details}"
+
+      System.cmd("gh", ["issue", "create", "--title", title, "--body", body, "--label", "ax-audit"])
+      Logger.info("Opened GitHub issue for AX Audit failures.")
   end
 end
