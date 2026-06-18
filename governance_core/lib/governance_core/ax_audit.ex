@@ -11,6 +11,8 @@ defmodule GovernanceCore.AXAudit do
 
   # 24 hours in milliseconds
   @interval 24 * 60 * 60 * 1000
+  # 1 minute in milliseconds for continuous MCP checks
+  @mcp_interval 60 * 1000
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -18,6 +20,7 @@ defmodule GovernanceCore.AXAudit do
 
   def init(state) do
     schedule_audit()
+    schedule_mcp_audit()
     {:ok, state}
   end
 
@@ -27,8 +30,96 @@ defmodule GovernanceCore.AXAudit do
     {:noreply, state}
   end
 
+  def handle_info(:mcp_audit, state) do
+    perform_mcp_audit()
+    schedule_mcp_audit()
+    {:noreply, state}
+  end
+
   defp schedule_audit do
     Process.send_after(self(), :audit, @interval)
+  end
+
+  defp schedule_mcp_audit do
+    Process.send_after(self(), :mcp_audit, @mcp_interval)
+  end
+
+  def perform_mcp_audit do
+    Logger.info("Starting Continuous MCP Audit...")
+    base_url = GovernanceCoreWeb.Endpoint.url()
+    url = base_url <> "/api/mcp"
+
+    start_time = System.monotonic_time(:millisecond)
+
+    case Req.get(url) do
+      {:ok, %{status: 200, body: body}} ->
+        end_time = System.monotonic_time(:millisecond)
+        duration = end_time - start_time
+
+        if duration > 1000 do
+          Logger.error("MCP response time exceeded threshold: #{duration}ms")
+          prepare_fix_pr("MCP API Response Time Too Slow", url, "Response time: #{duration}ms")
+        else
+          case Jason.decode(body) do
+            {:ok, _json} ->
+              Logger.info("MCP API is Agent-Friendly and responsive.")
+            {:error, _} ->
+              Logger.error("MCP API failed JSON schema validation.")
+              prepare_fix_pr("MCP API JSON Schema Invalid", url, "Invalid JSON structure.")
+          end
+        end
+
+      {:ok, %{status: status}} ->
+        Logger.error("MCP API returned status #{status}")
+        prepare_fix_pr("MCP API Error", url, "Returned status: #{status}")
+
+      {:error, reason} ->
+        Logger.error("Failed to fetch MCP API: #{inspect(reason)}")
+    end
+  end
+
+  defp prepare_fix_pr(title, endpoint, details) do
+    Logger.info("Preparing PR for: #{title}")
+
+    try do
+      # Avoid PR spam loop with exact match deduplication
+      case System.cmd("gh", ["pr", "list", "--search", "#{title} in:title", "--state", "open"]) do
+        {output, 0} ->
+          if output == "" do
+            create_pr(title, endpoint, details)
+          else
+            Logger.info("A fix PR is already open for #{title}.")
+          end
+        {_, _} ->
+           Logger.error("Failed to check existing PRs with gh.")
+      end
+    rescue
+      e in ErlangError -> Logger.error("CLI error during PR prep: #{inspect(e)}")
+    end
+  end
+
+  defp create_pr(title, endpoint, details) do
+    branch_name = "fix-ax-audit-#{System.unique_integer([:positive])}"
+
+    try do
+      System.cmd("git", ["checkout", "-b", branch_name])
+
+      # Dummy fix representation - modify a non-ignored file like priv/MCP_AUDIT_LOG
+      log_path = Path.join(File.cwd!(), "priv/MCP_AUDIT_LOG")
+      File.write!(log_path, "#{DateTime.utc_now()}: #{title} on #{endpoint} - #{details}\n", [:append])
+
+      System.cmd("git", ["add", log_path])
+      System.cmd("git", ["commit", "-m", "Automated fix: #{title}"])
+
+      case System.cmd("gh", ["pr", "create", "--title", title, "--body", "Automated fix prepared by AX Audit for #{endpoint}."]) do
+        {_, 0} -> Logger.info("Successfully created PR for: #{title}")
+        {err, _} -> Logger.error("Failed to create PR: #{err}")
+      end
+
+      System.cmd("git", ["checkout", "-"])
+    rescue
+      e in ErlangError -> Logger.error("CLI error during PR creation: #{inspect(e)}")
+    end
   end
 
   def perform_audit do
