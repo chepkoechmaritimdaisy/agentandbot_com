@@ -23,6 +23,11 @@ end
 config :governance_core, GovernanceCoreWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+if config_env() in [:dev, :test] do
+  secret_key_base = System.get_env("SECRET_KEY_BASE") || String.duplicate("a", 64)
+  config :governance_core, GovernanceCoreWeb.Endpoint, secret_key_base: secret_key_base
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
