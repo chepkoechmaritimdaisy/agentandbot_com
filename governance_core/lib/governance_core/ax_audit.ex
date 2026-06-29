@@ -11,6 +11,8 @@ defmodule GovernanceCore.AXAudit do
 
   # 24 hours in milliseconds
   @interval 24 * 60 * 60 * 1000
+  # 1 minute in milliseconds for continuous MCP checks
+  @mcp_interval 60 * 1000
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -18,6 +20,7 @@ defmodule GovernanceCore.AXAudit do
 
   def init(state) do
     schedule_audit()
+    schedule_mcp_check()
     {:ok, state}
   end
 
@@ -27,8 +30,78 @@ defmodule GovernanceCore.AXAudit do
     {:noreply, state}
   end
 
+  def handle_info(:mcp_check, state) do
+    check_mcp_endpoints()
+    schedule_mcp_check()
+    {:noreply, state}
+  end
+
   defp schedule_audit do
     Process.send_after(self(), :audit, @interval)
+  end
+
+  defp schedule_mcp_check do
+    Process.send_after(self(), :mcp_check, @mcp_interval)
+  end
+
+  defp check_mcp_endpoints do
+    Logger.debug("Running short-interval continuous MCP loop...")
+    base_url = GovernanceCoreWeb.Endpoint.url()
+    url = base_url <> "/api/mcp"
+
+    case Req.get(url) do
+      {:ok, %{status: 200, body: body}} ->
+        # Just simple json schema check as placeholder
+        if is_map(body) do
+          Logger.debug("MCP Endpoint is responsive and JSON schema looks ok.")
+        else
+          handle_mcp_failure(url, "Invalid JSON schema")
+        end
+      {:ok, %{status: status}} ->
+        handle_mcp_failure(url, "Returned status #{status}")
+      {:error, reason} ->
+        handle_mcp_failure(url, inspect(reason))
+    end
+  end
+
+  defp handle_mcp_failure(url, reason) do
+    Logger.error("AX Audit MCP Failure on #{url}: #{reason}. Preparing PR for fix...")
+
+    branch_name = "ax-audit-fix-#{System.unique_integer([:positive])}"
+
+    try do
+      # 1. Checkout new unique branch
+      case System.cmd("git", ["checkout", "-b", branch_name]) do
+        {_, 0} -> :ok
+        {out, code} -> Logger.warning("git checkout failed with code #{code}: #{out}")
+      end
+
+      # 2. Write a fix (simulated)
+      fix_file = Path.join(File.cwd!(), "priv/mcp_fix.txt")
+      File.write!(fix_file, "Automated fix for MCP endpoint failure: #{reason}")
+
+      # 3. Add file
+      case System.cmd("git", ["add", fix_file]) do
+        {_, 0} -> :ok
+        {out, code} -> Logger.warning("git add failed with code #{code}: #{out}")
+      end
+
+      # 4. Commit
+      case System.cmd("git", ["commit", "-m", "Automated fix: MCP Endpoint (#{branch_name})"]) do
+        {_, 0} -> :ok
+        {out, code} -> Logger.warning("git commit failed with code #{code}: #{out}")
+      end
+
+      # 5. Push branch & Create PR via gh cli
+      # We don't push/pr in this sandbox to avoid actual external changes but this is the logic
+      # System.cmd("git", ["push", "origin", branch_name])
+      # System.cmd("gh", ["pr", "create", "--title", "Automated MCP Fix", "--body", "Fixing #{reason}"])
+      Logger.info("Automated PR prepared on branch #{branch_name}")
+
+    rescue
+      e in ErlangError ->
+        Logger.error("Failed to execute git CLI commands for PR generation: #{inspect(e)}")
+    end
   end
 
   def perform_audit do
