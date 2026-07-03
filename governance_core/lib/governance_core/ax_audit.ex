@@ -10,7 +10,9 @@ defmodule GovernanceCore.AXAudit do
   require Logger
 
   # 24 hours in milliseconds
-  @interval 24 * 60 * 60 * 1000
+  @audit_interval 24 * 60 * 60 * 1000
+  # 1 minute in milliseconds
+  @mcp_interval 60 * 1000
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -18,6 +20,7 @@ defmodule GovernanceCore.AXAudit do
 
   def init(state) do
     schedule_audit()
+    schedule_mcp_audit()
     {:ok, state}
   end
 
@@ -27,8 +30,81 @@ defmodule GovernanceCore.AXAudit do
     {:noreply, state}
   end
 
+  def handle_info(:mcp_audit, state) do
+    perform_mcp_audit()
+    schedule_mcp_audit()
+    {:noreply, state}
+  end
+
   defp schedule_audit do
-    Process.send_after(self(), :audit, @interval)
+    Process.send_after(self(), :audit, @audit_interval)
+  end
+
+  defp schedule_mcp_audit do
+    Process.send_after(self(), :mcp_audit, @mcp_interval)
+  end
+
+  def perform_mcp_audit do
+    base_url = GovernanceCoreWeb.Endpoint.url()
+    url = base_url <> "/api/mcp"
+
+    # Track response time
+    start_time = System.monotonic_time()
+
+    case Req.get(url) do
+      {:ok, %{status: 200, body: body}} ->
+        response_time = System.monotonic_time() - start_time
+        response_time_ms = System.convert_time_unit(response_time, :native, :millisecond)
+
+        # Validate basic schema assumptions (example: must contain certain keys or be a valid JSON map)
+        is_valid_schema = is_map(body) || (is_binary(body) && Jason.decode(body) |> match?({:ok, %{}}))
+
+        cond do
+          response_time_ms > 1000 ->
+            handle_mcp_failure(url, "Slow response time: #{response_time_ms}ms")
+
+          !is_valid_schema ->
+            handle_mcp_failure(url, "Invalid JSON Schema or payload")
+
+          true ->
+            # Logger.debug("Continuous MCP Audit Passed")
+            :ok
+        end
+
+      {:ok, %{status: status}} ->
+        handle_mcp_failure(url, "Endpoint returned status #{status}")
+
+      {:error, reason} ->
+        handle_mcp_failure(url, "Request failed: #{inspect(reason)}")
+    end
+  end
+
+  defp handle_mcp_failure(url, reason) do
+    Logger.error("Continuous MCP Audit Failed: #{reason} for #{url}")
+    create_fix_pr(reason)
+  end
+
+  defp create_fix_pr(reason) do
+    # Creates an automated PR payload representing the fix
+    branch_name = "fix-mcp-audit-#{System.unique_integer([:positive])}"
+
+    payload = %{
+      title: "Automated Fix: MCP Audit Failure",
+      reason: is_tuple(reason) && inspect(reason) || reason,
+      timestamp: DateTime.utc_now()
+    }
+
+    file_path = Path.join(File.cwd!(), "priv/mcp_fix_#{branch_name}.json")
+
+    try do
+      System.cmd("git", ["checkout", "-b", branch_name])
+      File.write!(file_path, Jason.encode!(payload))
+      System.cmd("git", ["add", file_path])
+      System.cmd("git", ["commit", "-m", "chore: automated fix for MCP audit failure"])
+      # System.cmd("gh", ["pr", "create", "--title", payload.title, "--body", "Fixes mcp audit: #{payload.reason}"])
+    rescue
+      e in ErlangError -> Logger.warning("Could not execute git commands for PR creation: #{inspect(e)}")
+    end
   end
 
   def perform_audit do
