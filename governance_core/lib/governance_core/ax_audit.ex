@@ -11,6 +11,8 @@ defmodule GovernanceCore.AXAudit do
 
   # 24 hours in milliseconds
   @interval 24 * 60 * 60 * 1000
+  # 1 minute in milliseconds
+  @mcp_interval 60 * 1000
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -18,6 +20,7 @@ defmodule GovernanceCore.AXAudit do
 
   def init(state) do
     schedule_audit()
+    schedule_mcp_audit()
     {:ok, state}
   end
 
@@ -27,8 +30,18 @@ defmodule GovernanceCore.AXAudit do
     {:noreply, state}
   end
 
+  def handle_info(:audit_mcp, state) do
+    perform_mcp_audit()
+    schedule_mcp_audit()
+    {:noreply, state}
+  end
+
   defp schedule_audit do
     Process.send_after(self(), :audit, @interval)
+  end
+
+  defp schedule_mcp_audit do
+    Process.send_after(self(), :audit_mcp, @mcp_interval)
   end
 
   def perform_audit do
@@ -48,6 +61,87 @@ defmodule GovernanceCore.AXAudit do
       Logger.info("AX Audit Passed: All endpoints are Agent-Friendly.")
     else
       Logger.error("AX Audit Failed: #{inspect(failures)}")
+    end
+  end
+
+  def perform_mcp_audit do
+    Logger.info("Starting Continuous MCP AX Audit...")
+    base_url = GovernanceCoreWeb.Endpoint.url()
+    url = base_url <> "/api/mcp"
+
+    start_time = System.monotonic_time(:millisecond)
+
+    case Req.get(url) do
+      {:ok, %{status: 200, body: body}} ->
+        end_time = System.monotonic_time(:millisecond)
+        duration = end_time - start_time
+
+        case validate_mcp_json_schema(body) do
+          :ok ->
+            if duration > 1000 do
+              handle_mcp_failure("MCP endpoint response time too long (#{duration}ms)")
+            else
+              Logger.info("MCP AX Audit Passed.")
+            end
+
+          {:error, reason} ->
+            handle_mcp_failure("MCP JSON schema validation failed: #{reason}")
+        end
+
+      {:ok, %{status: status}} ->
+        handle_mcp_failure("MCP endpoint returned status #{status}")
+
+      {:error, reason} ->
+        handle_mcp_failure("Failed to fetch MCP endpoint: #{inspect(reason)}")
+    end
+  end
+
+  defp validate_mcp_json_schema(body) when is_map(body) do
+    # Simple JSON schema check (expecting a Map since Req parses JSON automatically)
+    if Map.has_key?(body, "mcp_version") and Map.has_key?(body, "endpoints") do
+      :ok
+    else
+      {:error, "Missing required keys 'mcp_version' or 'endpoints'"}
+    end
+  end
+
+  defp validate_mcp_json_schema(_) do
+    {:error, "Response body is not a valid JSON map"}
+  end
+
+  defp handle_mcp_failure(reason) do
+    Logger.error("MCP AX Audit Failed: #{reason}. Creating PR for fix...")
+    create_fix_pr(reason)
+  end
+
+  defp create_fix_pr(reason) do
+    # Automate PR creation using System.cmd
+    branch_name = "fix-mcp-#{System.unique_integer([:positive])}"
+
+    try do
+      # Checkout new branch
+      case System.cmd("git", ["checkout", "-b", branch_name]) do
+        {_, 0} ->
+          # We might want to create a dummy commit or modify a log file to have something to commit.
+          # For this exercise, we will just create an empty commit to open a PR.
+          case System.cmd("git", ["commit", "--allow-empty", "-m", "Automated PR: #{reason}"]) do
+            {_, 0} ->
+              # Create PR using gh cli
+              case System.cmd("gh", ["pr", "create", "--title", "Automated Fix for MCP Endpoint", "--body", reason, "--head", branch_name]) do
+                {_, 0} ->
+                  Logger.info("Successfully created automated PR for MCP fix.")
+                {error_output, exit_code} ->
+                  Logger.error("Failed to create PR with gh (exit #{exit_code}): #{error_output}")
+              end
+            {error_output, exit_code} ->
+               Logger.error("Failed to create commit (exit #{exit_code}): #{error_output}")
+          end
+        {error_output, exit_code} ->
+          Logger.error("Failed to checkout branch (exit #{exit_code}): #{error_output}")
+      end
+    rescue
+      e in ErlangError ->
+        Logger.error("Failed to execute CLI commands for PR creation: #{inspect(e)}")
     end
   end
 
