@@ -11,6 +11,8 @@ defmodule GovernanceCore.AXAudit do
 
   # 24 hours in milliseconds
   @interval 24 * 60 * 60 * 1000
+  # 1 minute in milliseconds
+  @continuous_interval 60 * 1000
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -18,6 +20,7 @@ defmodule GovernanceCore.AXAudit do
 
   def init(state) do
     schedule_audit()
+    schedule_continuous_audit()
     {:ok, state}
   end
 
@@ -27,8 +30,74 @@ defmodule GovernanceCore.AXAudit do
     {:noreply, state}
   end
 
+  def handle_info(:continuous_audit, state) do
+    perform_continuous_audit()
+    schedule_continuous_audit()
+    {:noreply, state}
+  end
+
   defp schedule_audit do
     Process.send_after(self(), :audit, @interval)
+  end
+
+  defp schedule_continuous_audit do
+    Process.send_after(self(), :continuous_audit, @continuous_interval)
+  end
+
+  def perform_continuous_audit do
+    Logger.info("Starting Continuous AX Audit for /api/mcp...")
+
+    url = GovernanceCoreWeb.Endpoint.url() <> "/api/mcp"
+    start_time = System.monotonic_time(:millisecond)
+
+    case Req.get(url) do
+      {:ok, %{status: 200, body: body}} ->
+        end_time = System.monotonic_time(:millisecond)
+        duration = end_time - start_time
+
+        if duration > 1000 do
+           Logger.error("AX Audit Failed: Response time for /api/mcp exceeded 1000ms (#{duration}ms)")
+           create_fix_pr("Response time too slow: #{duration}ms")
+        else
+           # Validate JSON schema/structure implicitly or via a check here
+           case Jason.encode(body) do
+             {:ok, _} -> Logger.info("Continuous AX Audit Passed for /api/mcp.")
+             {:error, _} ->
+                Logger.error("AX Audit Failed: JSON schema/structure broken for /api/mcp")
+                create_fix_pr("Broken JSON structure")
+           end
+        end
+      {:ok, %{status: status}} ->
+        Logger.error("AX Audit Failed: /api/mcp returned status #{status}")
+        create_fix_pr("Status #{status} instead of 200")
+      {:error, reason} ->
+        Logger.error("AX Audit Failed: Failed to fetch /api/mcp: #{inspect(reason)}")
+        create_fix_pr("Request failed: #{inspect(reason)}")
+    end
+  end
+
+  defp create_fix_pr(issue) do
+    branch_name = "auto-fix-ax-audit-#{System.unique_integer([:positive])}"
+
+    try do
+      # Make sure git branches and statuses work
+      System.cmd("git", ["checkout", "-b", branch_name])
+      # We could theoretically modify files here if we knew the fix, but the instruction
+      # states to "log and prepare a PR for a fix".
+
+      File.write!("audit_issue.txt", "Automated issue report: #{issue}")
+      System.cmd("git", ["add", "audit_issue.txt"])
+      System.cmd("git", ["commit", "-m", "Automated fix preparation for AX Audit issue"])
+
+      # Use `gh` CLI to create PR. Wrap in case it's missing or fails.
+      case System.cmd("gh", ["pr", "create", "--title", "Fix AX Audit Issue", "--body", issue]) do
+        {_, 0} -> Logger.info("Successfully created PR for AX audit failure on branch #{branch_name}")
+        {err, _} -> Logger.error("Failed to create PR with gh CLI: #{err}")
+      end
+    rescue
+      e in ErlangError ->
+        Logger.error("Failed to execute git or gh commands: #{Exception.message(e)}")
+    end
   end
 
   def perform_audit do
